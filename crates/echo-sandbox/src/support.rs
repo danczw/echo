@@ -41,11 +41,12 @@ impl KernelSupport {
         {
             use landlock::{ABI, Access, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr};
 
-            // HardRequirement makes this fail rather than silently downgrade on
-            // a kernel that does not support the requested access rights.
+            // Must match the baseline `helper::apply` hard-requires, or this
+            // reports "supported" on a kernel where applying the policy then
+            // fails. HardRequirement makes it fail rather than downgrade.
             let probe = Ruleset::default()
                 .set_compatibility(CompatLevel::HardRequirement)
-                .handle_access(AccessFs::from_all(ABI::V1))
+                .handle_access(AccessFs::from_all(ABI::V5))
                 .and_then(Ruleset::create);
 
             Self::new(probe.is_ok())
@@ -73,8 +74,8 @@ impl KernelSupport {
         } else {
             Err(SandboxError::Unsupported {
                 detail: if cfg!(target_os = "linux") {
-                    "kernel does not provide Landlock (needs Linux 5.13+, with \
-                     Landlock enabled at boot)"
+                    "kernel cannot enforce the required Landlock access rights \
+                     (needs Linux 6.10+ with Landlock enabled at boot)"
                 } else {
                     "sandboxing is only implemented for Linux"
                 },

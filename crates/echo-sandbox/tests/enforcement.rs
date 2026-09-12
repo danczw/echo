@@ -29,6 +29,18 @@ fn runtime_paths(policy: SandboxPolicy) -> SandboxPolicy {
         .fold(policy, |acc, p| acc.allow_read(p))
 }
 
+/// Grant read access to a probe binary so it can be `exec`ed.
+///
+/// Probes live under `target/`, which `runtime_paths` does not cover. Without
+/// this the probe fails to start, and a denial test would pass because nothing
+/// ran — not because the kernel refused anything.
+fn allow_probe(policy: SandboxPolicy, probe: &str) -> SandboxPolicy {
+    let dir = std::path::Path::new(probe)
+        .parent()
+        .expect("probe path has a parent");
+    policy.allow_read(dir)
+}
+
 fn run(policy: &SandboxPolicy, program: &str, args: &[&str]) -> std::process::Output {
     let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     Command::new(env!("CARGO_BIN_EXE_echo-sandbox-helper"))
@@ -213,4 +225,74 @@ fn seccomp_filter_is_installed() {
         Some("2"),
         "expected seccomp filter mode (2); process reported {mode:?}"
     );
+}
+
+/// Truncation is a write. Landlock leaves *unhandled* access types unrestricted
+/// everywhere, so a ruleset that never handles `Truncate` permits zeroing any
+/// file on the machine — including one granted read-only.
+///
+/// Uses a dedicated probe: `: > file` and `truncate(1)` both go through
+/// `open(O_TRUNC)`/`ftruncate`, which `WriteFile` already covers. Only
+/// `truncate(2)` on a path exercises the right under test.
+#[test]
+fn truncate_on_read_only_grant_is_denied() {
+    let dir = tempfile::tempdir().unwrap();
+    let victim = dir.path().join("victim.txt");
+    std::fs::write(&victim, b"original contents").unwrap();
+
+    let probe = env!("CARGO_BIN_EXE_echo-truncate-probe");
+    let policy = allow_probe(
+        runtime_paths(SandboxPolicy::default()).allow_read(dir.path()),
+        probe,
+    );
+    let output = run(&policy, probe, &[victim.to_str().unwrap()]);
+
+    assert!(!output.status.success(), "truncated a read-only grant");
+    assert_eq!(
+        std::fs::read_to_string(&victim).unwrap(),
+        "original contents",
+        "file was truncated despite a read-only grant"
+    );
+}
+
+/// The same with no grant of any kind — the reviewer's demonstrated escape.
+#[test]
+fn truncate_on_ungranted_path_is_denied() {
+    let dir = tempfile::tempdir().unwrap();
+    let victim = dir.path().join("victim.txt");
+    std::fs::write(&victim, b"original contents").unwrap();
+
+    // dir is deliberately NOT granted.
+    let probe = env!("CARGO_BIN_EXE_echo-truncate-probe");
+    let policy = allow_probe(runtime_paths(SandboxPolicy::default()), probe);
+    let output = run(&policy, probe, &[victim.to_str().unwrap()]);
+
+    assert!(!output.status.success(), "truncated an ungranted path");
+    assert_eq!(
+        std::fs::read_to_string(&victim).unwrap(),
+        "original contents",
+        "ungranted file was truncated"
+    );
+}
+
+/// Truncating a path the policy grants for writing must still work.
+#[test]
+fn truncate_on_write_grant_is_permitted() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("scratch.txt");
+    std::fs::write(&target, b"original contents").unwrap();
+
+    let probe = env!("CARGO_BIN_EXE_echo-truncate-probe");
+    let policy = allow_probe(
+        runtime_paths(SandboxPolicy::default()).allow_write(dir.path()),
+        probe,
+    );
+    let output = run(&policy, probe, &[target.to_str().unwrap()]);
+
+    assert!(
+        output.status.success(),
+        "truncate was refused on a writable grant: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "");
 }

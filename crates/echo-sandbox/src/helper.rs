@@ -66,13 +66,29 @@ fn apply(policy: &crate::SandboxPolicy) -> Result<(), SandboxError> {
 
     deny_dangerous_syscalls()?;
 
-    let abi = ABI::V1;
-    let read_only = AccessFs::from_read(abi);
-    let read_write = AccessFs::from_all(abi);
+    // Landlock leaves access types that are NOT in the handled set unrestricted
+    // *everywhere*. Pinning a low ABI therefore does not mean "enforce less"; it
+    // means whole categories go completely unguarded — which is how `truncate(2)`
+    // was permitted on any file regardless of policy.
+    //
+    // So negotiate rather than pin. `handle_access` accumulates (`|=`), so the
+    // baseline can be a hard requirement while newer rights are best-effort.
+    const BASELINE: ABI = ABI::V5; // Linux 6.10: adds Truncate, Refer, IoctlDev
+    const LATEST: ABI = ABI::V9; // Linux 6.15: adds ResolveUnix
+
+    let read_only = AccessFs::from_read(LATEST);
+    let read_write = AccessFs::from_all(LATEST);
 
     let mut ruleset = Ruleset::default()
+        // Refuse a kernel that cannot enforce the baseline, rather than running
+        // with a silent hole in it.
         .set_compatibility(CompatLevel::HardRequirement)
-        .handle_access(read_write)
+        .handle_access(AccessFs::from_all(BASELINE))
+        .map_err(landlock_failed)?
+        // Anything newer is a bonus: handled where the kernel has it, dropped
+        // where it does not.
+        .set_compatibility(CompatLevel::BestEffort)
+        .handle_access(AccessFs::from_all(LATEST))
         .map_err(landlock_failed)?
         .create()
         .map_err(landlock_failed)?;
@@ -82,7 +98,7 @@ fn apply(policy: &crate::SandboxPolicy) -> Result<(), SandboxError> {
     // policy may name either, so narrow the rights to what the target can
     // actually carry. Intersecting rather than substituting keeps this a
     // restriction: a file can never end up with more than the directory case.
-    let file_rights = AccessFs::from_file(abi);
+    let file_rights = AccessFs::from_file(LATEST);
     for (paths, rights) in [
         (policy.readable_paths(), read_only),
         (policy.writable_paths(), read_write),
