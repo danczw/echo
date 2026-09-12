@@ -1,0 +1,133 @@
+//! Public contract of [`FsGuard`]: nothing outside an allowed root is reachable.
+//!
+//! These go through the public API only — the same surface a consumer has — so
+//! a pass here is evidence the boundary actually holds, not that the test could
+//! reach internals no real caller can.
+
+use echo_sandbox::{FsGuard, SandboxPolicy};
+
+/// A path directly inside an allowed root is fine.
+#[test]
+fn read_inside_allowed_root_is_permitted() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("notes.txt");
+    std::fs::write(&file, b"hello").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+
+    assert!(guard.check_read(&file).is_ok());
+}
+
+/// Nothing outside the allowed roots is readable.
+#[test]
+fn read_outside_allowed_root_is_denied() {
+    let allowed = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let secret = elsewhere.path().join("secret.txt");
+    std::fs::write(&secret, b"secret").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(allowed.path())).unwrap();
+
+    assert!(guard.check_read(&secret).is_err());
+}
+
+/// `..` must not walk out of an allowed root.
+///
+/// A guard comparing string prefixes passes this path — it starts with the
+/// allowed root — while actually pointing outside it.
+#[test]
+fn parent_traversal_cannot_escape_root() {
+    let root = tempfile::tempdir().unwrap();
+    let inner = root.path().join("work");
+    std::fs::create_dir(&inner).unwrap();
+    let outside = root.path().join("outside.txt");
+    std::fs::write(&outside, b"nope").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(&inner)).unwrap();
+
+    assert!(
+        guard.check_read(&inner.join("../outside.txt")).is_err(),
+        "`..` escaped the allowed root"
+    );
+}
+
+/// A symlink inside an allowed root must not grant access to its target.
+///
+/// The link itself lives in an allowed directory, so only resolving it catches
+/// this.
+#[cfg(unix)]
+#[test]
+fn symlink_cannot_escape_root() {
+    let root = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let secret = elsewhere.path().join("secret.txt");
+    std::fs::write(&secret, b"secret").unwrap();
+
+    let link = root.path().join("innocent.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+
+    assert!(
+        guard.check_read(&link).is_err(),
+        "symlink escaped the allowed root"
+    );
+}
+
+/// Writes target files that do not exist yet, so the check cannot require the
+/// path itself to resolve — only its parent.
+#[test]
+fn write_to_new_file_in_allowed_root_is_permitted() {
+    let root = tempfile::tempdir().unwrap();
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_write(root.path())).unwrap();
+
+    let new_file = root.path().join("created-later.txt");
+    assert!(!new_file.exists());
+
+    assert!(guard.check_write(&new_file).is_ok());
+}
+
+/// A new file's parent is resolved, so `..` cannot escape on the write path
+/// either.
+#[test]
+fn write_to_new_file_outside_allowed_root_is_denied() {
+    let root = tempfile::tempdir().unwrap();
+    let inner = root.path().join("work");
+    std::fs::create_dir(&inner).unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_write(&inner)).unwrap();
+
+    assert!(
+        guard.check_write(&inner.join("../escaped.txt")).is_err(),
+        "`..` escaped the allowed root on the write path"
+    );
+}
+
+/// Read and write are granted separately: a readable root is not writable.
+#[test]
+fn read_grant_does_not_imply_write() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("notes.txt");
+    std::fs::write(&file, b"hello").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+
+    assert!(guard.check_read(&file).is_ok());
+    assert!(
+        guard.check_write(&file).is_err(),
+        "read access must not grant write access"
+    );
+}
+
+/// A default policy grants no filesystem access at all.
+#[test]
+fn default_policy_permits_no_path() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("notes.txt");
+    std::fs::write(&file, b"hello").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default()).unwrap();
+
+    assert!(guard.check_read(&file).is_err());
+    assert!(guard.check_write(&file).is_err());
+}
