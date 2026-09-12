@@ -24,6 +24,15 @@ pub enum SandboxError {
         /// The underlying resolution failure.
         source: std::io::Error,
     },
+
+    /// This kernel or platform cannot enforce a sandbox.
+    ///
+    /// Returned instead of running unsandboxed, so an unsupported environment
+    /// stops echo rather than silently removing every restriction.
+    Unsupported {
+        /// What is missing, for the operator to act on.
+        detail: &'static str,
+    },
 }
 
 impl std::fmt::Display for SandboxError {
@@ -43,6 +52,9 @@ impl std::fmt::Display for SandboxError {
                     requested.display()
                 )
             }
+            Self::Unsupported { detail } => {
+                write!(f, "sandboxing is not available here: {detail}")
+            }
         }
     }
 }
@@ -50,7 +62,7 @@ impl std::fmt::Display for SandboxError {
 impl std::error::Error for SandboxError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::PathNotAllowed { .. } => None,
+            Self::PathNotAllowed { .. } | Self::Unsupported { .. } => None,
             Self::Unresolvable { source, .. } => Some(source),
         }
     }
