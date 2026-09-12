@@ -296,3 +296,39 @@ fn truncate_on_write_grant_is_permitted() {
     );
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "");
 }
+
+/// A network namespace isolates only *abstract* unix sockets. Pathname sockets
+/// live in the filesystem and cross it freely, so denying network is not enough
+/// on its own — without a further control a command can still dial host daemons
+/// (systemd's bus, docker.sock, an ssh-agent) and have them act outside the cage.
+#[test]
+fn unix_socket_connect_to_ungranted_path_is_denied() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("host.sock");
+
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let accepting = std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            use std::io::Write;
+            let _ = stream.write_all(b"HOST-SIDE-SECRET");
+        }
+    });
+
+    // The socket's directory is deliberately NOT granted, and network is denied.
+    let probe = env!("CARGO_BIN_EXE_echo-unix-probe");
+    let policy = allow_probe(runtime_paths(SandboxPolicy::default()), probe);
+    let output = run(&policy, probe, &[socket.to_str().unwrap()]);
+
+    // Unblock the accept thread whether or not the connect got through.
+    let _ = std::os::unix::net::UnixStream::connect(&socket);
+    let _ = accepting.join();
+
+    assert!(
+        !output.status.success(),
+        "connected to a unix socket outside every grant with network denied"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("HOST-SIDE-SECRET"),
+        "data crossed the sandbox boundary over a unix socket"
+    );
+}
