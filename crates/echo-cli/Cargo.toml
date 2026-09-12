@@ -1,0 +1,17 @@
+[package]
+name = "echo-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The crate is `echo-cli` to keep the workspace naming consistent, but the
+# shipped command users type is `echo`.
+[[bin]]
+name = "echo"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,27 @@
+[package]
+name = "echo-sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+# NOTE: deliberately does NOT inherit `[workspace.lints]`, which sets
+# `unsafe_code = "forbid"` (unoverridable). This is the only crate allowed to
+# use `unsafe` or to spawn subprocesses directly.
+#
+# It is `deny`, not `allow`: every `unsafe` block must be explicitly annotated
+# with `#[allow(unsafe_code)]` plus a SAFETY comment, so each one is a
+# deliberate, reviewable decision rather than a crate-wide exemption.
+#
+# Expected sole use: `CommandExt::pre_exec`, which applies the Landlock/seccomp
+# restrictions in the child between fork() and exec() — so the child is
+# sandboxed without echo restricting itself. It is unsafe because only
+# async-signal-safe calls are legal in that window (post-fork, a multithreaded
+# parent leaves other threads' locks permanently held in the child).
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+disallowed_methods = "deny"
