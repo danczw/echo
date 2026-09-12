@@ -85,6 +85,8 @@ impl SandboxedCommand {
     pub fn output(&self) -> Result<std::process::Output, SandboxError> {
         let (helper, argv) = self.command_line()?;
 
+        crate::AuditEvent::spawned(&self.program, &self.policy).emit();
+
         // The workspace bans `Command::new` so nothing can execute around the
         // sandbox. This spawns the helper, which restricts itself before
         // becoming the command — the sanctioned path, not a bypass of it.
