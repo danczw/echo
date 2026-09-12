@@ -131,3 +131,41 @@ fn default_policy_permits_no_path() {
     assert!(guard.check_read(&file).is_err());
     assert!(guard.check_write(&file).is_err());
 }
+
+/// A symlink whose target does not exist yet must not be treated as a new file.
+///
+/// `canonicalize` fails identically on a nonexistent path and on a dangling
+/// symlink, so a guard that falls back to resolving only the parent approves the
+/// link — and the caller's write then follows it out of the root.
+#[cfg(unix)]
+#[test]
+fn write_to_dangling_symlink_is_denied() {
+    let root = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+
+    // Target does not exist yet, which is what makes canonicalize fail.
+    let outside = elsewhere.path().join("authorized_keys");
+    let link = root.path().join("notes.txt");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_write(root.path())).unwrap();
+
+    assert!(
+        guard.check_write(&link).is_err(),
+        "approved a dangling symlink pointing outside the allowed root"
+    );
+    assert!(
+        !outside.exists(),
+        "the symlink target was created outside the root"
+    );
+}
+
+/// The case the fallback exists for must keep working: a plain new file.
+#[cfg(unix)]
+#[test]
+fn write_to_new_file_beside_a_symlink_still_works() {
+    let root = tempfile::tempdir().unwrap();
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_write(root.path())).unwrap();
+
+    assert!(guard.check_write(&root.path().join("fresh.txt")).is_ok());
+}
