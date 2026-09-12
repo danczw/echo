@@ -25,6 +25,30 @@ pub enum SandboxError {
         source: std::io::Error,
     },
 
+    /// The helper process was given argv it could not parse.
+    ///
+    /// A refusal rather than a best-effort parse: running with a policy that
+    /// differs from the one echo intended is the exact failure the sandbox
+    /// exists to prevent.
+    BadHelperArgs {
+        /// What was wrong, for the operator to act on.
+        detail: &'static str,
+    },
+
+    /// The kernel refused to apply the Landlock ruleset.
+    Landlock {
+        /// The failing step and the kernel's reason.
+        detail: String,
+    },
+
+    /// A sandboxed process could not be started.
+    SpawnFailed {
+        /// What failed, for the operator to act on.
+        detail: &'static str,
+        /// The underlying OS failure.
+        source: std::io::Error,
+    },
+
     /// This kernel or platform cannot enforce a sandbox.
     ///
     /// Returned instead of running unsandboxed, so an unsupported environment
@@ -55,6 +79,15 @@ impl std::fmt::Display for SandboxError {
             Self::Unsupported { detail } => {
                 write!(f, "sandboxing is not available here: {detail}")
             }
+            Self::BadHelperArgs { detail } => {
+                write!(f, "malformed sandbox helper arguments: {detail}")
+            }
+            Self::SpawnFailed { detail, source } => {
+                write!(f, "{detail}: {source}")
+            }
+            Self::Landlock { detail } => {
+                write!(f, "kernel refused the Landlock ruleset: {detail}")
+            }
         }
     }
 }
@@ -62,8 +95,11 @@ impl std::fmt::Display for SandboxError {
 impl std::error::Error for SandboxError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::PathNotAllowed { .. } | Self::Unsupported { .. } => None,
-            Self::Unresolvable { source, .. } => Some(source),
+            Self::PathNotAllowed { .. }
+            | Self::Unsupported { .. }
+            | Self::BadHelperArgs { .. }
+            | Self::Landlock { .. } => None,
+            Self::Unresolvable { source, .. } | Self::SpawnFailed { source, .. } => Some(source),
         }
     }
 }
