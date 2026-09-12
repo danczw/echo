@@ -13,6 +13,7 @@ repository.workspace = true
 sandbox-integration = []
 
 [dependencies]
+landlock = "0.4.7"
 
 # NOTE: deliberately does NOT inherit `[workspace.lints]`, which sets
 # `unsafe_code = "forbid"` (unoverridable). This is the only crate allowed to

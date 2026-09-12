@@ -16,7 +16,9 @@
 mod error;
 mod fs_guard;
 mod policy;
+mod support;
 
 pub use error::SandboxError;
 pub use fs_guard::FsGuard;
 pub use policy::SandboxPolicy;
+pub use support::KernelSupport;
