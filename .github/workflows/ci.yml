@@ -9,6 +9,12 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+# Least privilege for GITHUB_TOKEN: declaring this replaces the broad repo
+# default with exactly what is listed. No job writes, so a compromised
+# third-party action cannot push commits or publish releases.
+permissions:
+  contents: read
+
 # A new push to a PR makes the in-flight run obsolete.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
