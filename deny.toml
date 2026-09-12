@@ -26,7 +26,7 @@ allow = [
 # Duplicate versions of the same crate bloat the binary and mean two copies of
 # any vulnerability. Warn rather than deny: transitive deps often force these.
 multiple-versions = "warn"
-wildcard-dependencies = "deny"
+wildcards = "deny"
 
 [sources]
 # Only crates.io. A git or alternate-registry dependency sneaking in is a
