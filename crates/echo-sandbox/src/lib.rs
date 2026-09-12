@@ -14,6 +14,7 @@
 //!
 //! Both are default-deny: see [`SandboxPolicy`].
 
+mod audit;
 mod command;
 mod error;
 mod fs_guard;
@@ -22,6 +23,7 @@ mod helper_args;
 mod policy;
 mod support;
 
+pub use audit::{AUDIT_TARGET, AuditEvent};
 pub use command::{HELPER_FLAG, SandboxedCommand, dispatch_helper_mode};
 pub use error::SandboxError;
 pub use fs_guard::FsGuard;

@@ -36,7 +36,7 @@ impl FsGuard {
     /// The path must already exist — you cannot read what is not there.
     pub fn check_read(&self, path: &Path) -> Result<PathBuf, SandboxError> {
         let resolved = canonicalize(path)?;
-        permit(resolved, &self.readable, path)
+        permit(resolved, &self.readable, path, "read")
     }
 
     /// Permit writing `path`, returning its resolved location.
@@ -60,7 +60,7 @@ impl FsGuard {
             }
         };
 
-        permit(resolved, &self.writable, path)
+        permit(resolved, &self.writable, path, "write")
     }
 }
 
@@ -82,10 +82,19 @@ fn canonicalize(path: &Path) -> Result<PathBuf, SandboxError> {
 /// Compares whole path components, not string prefixes: `/work-secrets` must not
 /// match the root `/work`, which a `starts_with` on strings would allow.
 /// `Path::starts_with` is component-wise, which is exactly the needed semantics.
-fn permit(resolved: PathBuf, roots: &[PathBuf], requested: &Path) -> Result<PathBuf, SandboxError> {
+fn permit(
+    resolved: PathBuf,
+    roots: &[PathBuf],
+    requested: &Path,
+    operation: &str,
+) -> Result<PathBuf, SandboxError> {
+    let subject = requested.display().to_string();
+
     if roots.iter().any(|root| resolved.starts_with(root)) {
+        crate::AuditEvent::allowed(operation, &subject).emit();
         Ok(resolved)
     } else {
+        crate::AuditEvent::denied(operation, &subject, "outside every allowed root").emit();
         Err(SandboxError::PathNotAllowed {
             requested: requested.to_path_buf(),
         })
