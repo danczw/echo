@@ -185,3 +185,32 @@ fn allowed_network_keeps_host_interfaces() {
         "granting network should leave the host interfaces visible, got: {interfaces}"
     );
 }
+
+/// A seccomp filter must actually be installed, not merely constructed.
+///
+/// `/proc/self/status` reports `Seccomp: 2` once a BPF filter is in force, so
+/// the sandboxed process can confirm its own state without needing a tool that
+/// attempts a blocked syscall.
+#[test]
+fn seccomp_filter_is_installed() {
+    let policy = runtime_paths(SandboxPolicy::default()).allow_read("/proc");
+    let output = run(&policy, "/bin/cat", &["/proc/self/status"]);
+
+    assert!(
+        output.status.success(),
+        "could not read process status: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = String::from_utf8_lossy(&output.stdout);
+    let mode = status
+        .lines()
+        .find_map(|l| l.strip_prefix("Seccomp:"))
+        .map(str::trim);
+
+    assert_eq!(
+        mode,
+        Some("2"),
+        "expected seccomp filter mode (2); process reported {mode:?}"
+    );
+}

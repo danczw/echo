@@ -56,6 +56,16 @@ fn apply(policy: &crate::SandboxPolicy) -> Result<(), SandboxError> {
         deny_network()?;
     }
 
+    // Installing a seccomp filter requires either CAP_SYS_ADMIN or no_new_privs.
+    // Set it explicitly rather than relying on the user namespace above, which
+    // only exists when network is denied. It is irreversible and inherited
+    // across exec, which is what makes the filter stick to the real command.
+    nix::sys::prctl::set_no_new_privs().map_err(|errno| SandboxError::Seccomp {
+        detail: format!("could not set no_new_privs: {errno}"),
+    })?;
+
+    deny_dangerous_syscalls()?;
+
     let abi = ABI::V1;
     let read_only = AccessFs::from_read(abi);
     let read_write = AccessFs::from_all(abi);
@@ -102,6 +112,82 @@ fn apply(policy: &crate::SandboxPolicy) -> Result<(), SandboxError> {
     }
 
     Ok(())
+}
+
+/// Block syscalls a coding tool never legitimately needs.
+///
+/// A denylist, not an allowlist. An allowlist is the stronger shape, but echo
+/// runs arbitrary commands — shells, compilers, package managers — whose syscall
+/// use is unbounded, so enumerating it would break real tools constantly. This
+/// mirrors what container runtimes settle on for the same reason.
+///
+/// Landlock cannot express any of these: they are not filesystem access. That is
+/// why both layers exist rather than one.
+///
+/// Blocked calls return `EPERM` rather than killing the process. The syscall
+/// does not execute either way; `EPERM` is what tools already expect on hardened
+/// systems, so they fail that operation instead of dying mid-run.
+#[cfg(target_os = "linux")]
+fn deny_dangerous_syscalls() -> Result<(), SandboxError> {
+    use std::collections::BTreeMap;
+
+    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
+
+    let blocked = [
+        // Inspect or modify other processes.
+        libc::SYS_ptrace,
+        libc::SYS_process_vm_readv,
+        libc::SYS_process_vm_writev,
+        // Reshape the filesystem out from under Landlock.
+        libc::SYS_mount,
+        libc::SYS_umount2,
+        libc::SYS_pivot_root,
+        libc::SYS_chroot,
+        // Escape or re-create namespaces, including the netns just entered.
+        libc::SYS_setns,
+        libc::SYS_unshare,
+        // Load code into the kernel.
+        libc::SYS_init_module,
+        libc::SYS_finit_module,
+        libc::SYS_delete_module,
+        libc::SYS_bpf,
+        libc::SYS_kexec_load,
+        // Kernel keyring: credentials live here.
+        libc::SYS_add_key,
+        libc::SYS_request_key,
+        libc::SYS_keyctl,
+        // Tracing infrastructure, a known side-channel surface.
+        libc::SYS_perf_event_open,
+        // Whole-machine effects.
+        libc::SYS_reboot,
+        libc::SYS_swapon,
+        libc::SYS_swapoff,
+    ];
+
+    // An empty rule vector means "match this syscall unconditionally", so every
+    // listed number takes `match_action` and everything else is allowed.
+    let rules = blocked
+        .into_iter()
+        .map(|nr| (nr, Vec::new()))
+        .collect::<BTreeMap<_, _>>();
+
+    let filter = SeccompFilter::new(
+        rules,
+        SeccompAction::Allow,
+        SeccompAction::Errno(libc::EPERM as u32),
+        std::env::consts::ARCH.try_into().map_err(seccomp_failed)?,
+    )
+    .map_err(seccomp_failed)?;
+
+    let program: BpfProgram = filter.try_into().map_err(seccomp_failed)?;
+    seccompiler::apply_filter(&program).map_err(seccomp_failed)
+}
+
+#[cfg(target_os = "linux")]
+fn seccomp_failed(source: impl std::fmt::Display) -> SandboxError {
+    SandboxError::Seccomp {
+        detail: source.to_string(),
+    }
 }
 
 /// Move this process into an empty network namespace.

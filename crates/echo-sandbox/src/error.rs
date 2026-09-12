@@ -41,6 +41,15 @@ pub enum SandboxError {
         detail: String,
     },
 
+    /// The syscall filter could not be installed.
+    ///
+    /// A refusal: without it, a sandboxed tool could reach syscalls Landlock
+    /// cannot express.
+    Seccomp {
+        /// What failed, for the operator to act on.
+        detail: String,
+    },
+
     /// The network could not be taken away from the sandboxed process.
     ///
     /// A refusal: running with network access the policy denied is worse than
@@ -100,6 +109,9 @@ impl std::fmt::Display for SandboxError {
             Self::NetworkDenialFailed { detail } => {
                 write!(f, "could not deny network access: {detail}")
             }
+            Self::Seccomp { detail } => {
+                write!(f, "could not install the syscall filter: {detail}")
+            }
         }
     }
 }
@@ -111,7 +123,8 @@ impl std::error::Error for SandboxError {
             | Self::Unsupported { .. }
             | Self::BadHelperArgs { .. }
             | Self::Landlock { .. }
-            | Self::NetworkDenialFailed { .. } => None,
+            | Self::NetworkDenialFailed { .. }
+            | Self::Seccomp { .. } => None,
             Self::Unresolvable { source, .. } | Self::SpawnFailed { source, .. } => Some(source),
         }
     }
