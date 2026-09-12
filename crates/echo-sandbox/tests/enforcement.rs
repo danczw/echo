@@ -332,3 +332,34 @@ fn unix_socket_connect_to_ungranted_path_is_denied() {
         "data crossed the sandbox boundary over a unix socket"
     );
 }
+
+/// A symlinked policy root grants its resolved target, and both enforcement
+/// layers must agree on that.
+///
+/// `FsGuard` canonicalizes its roots; the helper must too, or the same policy
+/// means different things in-process and in the kernel. Resolving rather than
+/// rejecting is deliberate: `/bin`, `/lib` and `/lib64` are symlinks on ordinary
+/// systems, so refusing symlinked roots would refuse every realistic policy.
+#[test]
+fn symlinked_policy_root_resolves_consistently() {
+    let real = tempfile::tempdir().unwrap();
+    let staging = tempfile::tempdir().unwrap();
+    std::fs::write(real.path().join("s.txt"), b"target-side").unwrap();
+
+    let link = staging.path().join("granted");
+    std::os::unix::fs::symlink(real.path(), &link).unwrap();
+
+    let policy = runtime_paths(SandboxPolicy::default()).allow_read(&link);
+
+    // Reachable through the link — the path actually granted.
+    let via_link = run(&policy, "/bin/cat", &[link.join("s.txt").to_str().unwrap()]);
+    assert!(via_link.status.success());
+
+    // The in-process guard must reach the same verdict for the resolved path,
+    // rather than denying what the kernel permits.
+    let guard = echo_sandbox::FsGuard::new(&policy).unwrap();
+    assert!(
+        guard.check_read(&real.path().join("s.txt")).is_ok(),
+        "FsGuard denies a path the kernel layer permits: the two layers disagree"
+    );
+}
