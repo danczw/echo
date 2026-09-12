@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Advisories are published continuously, so re-run the supply-chain check on a
+  # schedule rather than only when the code happens to change.
+  schedule:
+    - cron: "0 6 * * 1"
+
+# A new push to a PR makes the in-flight run obsolete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail rather than silently retry on a flaky registry.
+  CARGO_NET_RETRY: 0
+
+jobs:
+  check:
+    name: fmt, clippy, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      # Mirrors the pre-commit hook, so CI never disagrees with local tooling.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Default suite only: excludes the sandbox-integration feature and any
+      # test gated on live LLM credentials.
+      - name: Test
+        run: cargo test --workspace
+
+  sandbox-integration:
+    name: sandbox enforcement (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # The sandbox is the point of this project, so verify the runner can
+      # actually enforce before trusting a green check. Landlock needs kernel
+      # 5.13+; unprivileged userns is disabled by sysctl on some hardened images.
+      - name: Report kernel sandbox support
+        run: |
+          uname -r
+          echo "landlock LSM: $(cat /sys/kernel/security/lsm 2>/dev/null || echo unknown)"
+          echo "unprivileged_userns_clone: $(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || echo unset)"
+          echo "apparmor userns restriction: $(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo unset)"
+
+      # These tests assert that escapes are actually blocked, not merely that
+      # the code compiles. Added in Phase 1; no-op until then.
+      - name: Test (sandbox enforcement)
+        run: cargo test --workspace --features sandbox-integration
+
+  supply-chain:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
