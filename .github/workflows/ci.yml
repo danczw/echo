@@ -20,8 +20,7 @@ env:
   CARGO_NET_RETRY: 0
 
 jobs:
-  check:
-    name: fmt, clippy, test
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,8 +43,7 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-  sandbox-integration:
-    name: sandbox enforcement (linux)
+  sandbox:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,12 +61,12 @@ jobs:
           echo "apparmor userns restriction: $(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo unset)"
 
       # These tests assert that escapes are actually blocked, not merely that
-      # the code compiles. Added in Phase 1; no-op until then.
+      # the code compiles. The feature is declared but empty until Phase 1
+      # fills it in, so this currently passes with zero tests.
       - name: Test (sandbox enforcement)
         run: cargo test --workspace --features sandbox-integration
 
-  supply-chain:
-    name: cargo-deny
+  audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
