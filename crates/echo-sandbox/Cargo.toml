@@ -14,7 +14,7 @@ sandbox-integration = []
 [dependencies]
 landlock = "0.4.7"
 libc = "0.2.189"
-nix = { version = "0.31.3", default-features = false, features = ["sched"] }
+nix = { version = "0.31.3", default-features = false, features = ["sched", "fs"] }
 seccompiler = "0.5.0"
 tracing = "0.1.44"
 
@@ -32,3 +32,10 @@ unsafe_code = "forbid"
 [dev-dependencies]
 tempfile = "3.27.0"
 tracing-subscriber = "0.3.23"
+
+# Test-only probe for the `Truncate` access right. `required-features` keeps it
+# out of normal builds; it is not part of the shipped surface.
+[[bin]]
+name = "echo-truncate-probe"
+path = "tests/support/truncate_probe.rs"
+required-features = ["sandbox-integration"]
