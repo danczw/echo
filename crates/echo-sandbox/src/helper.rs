@@ -49,6 +49,13 @@ fn apply(policy: &crate::SandboxPolicy) -> Result<(), SandboxError> {
         RulesetCreatedAttr, RulesetStatus,
     };
 
+    // Network first, while this process still has the privileges to do it:
+    // Landlock's restrict_self is irreversible, so anything needing capabilities
+    // must happen before it.
+    if !policy.allows_network() {
+        deny_network()?;
+    }
+
     let abi = ABI::V1;
     let read_only = AccessFs::from_read(abi);
     let read_write = AccessFs::from_all(abi);
@@ -95,6 +102,38 @@ fn apply(policy: &crate::SandboxPolicy) -> Result<(), SandboxError> {
     }
 
     Ok(())
+}
+
+/// Move this process into an empty network namespace.
+///
+/// A fresh netns has only a (down) loopback interface and no route anywhere, so
+/// there is no network to reach rather than a filtered one. That is stronger
+/// than Landlock's network rules, which only cover TCP bind/connect and would
+/// leave UDP and raw sockets untouched.
+///
+/// `CLONE_NEWUSER` is requested alongside `CLONE_NEWNET` because creating a
+/// network namespace otherwise needs `CAP_SYS_ADMIN`; a user namespace grants
+/// that capability *within the new namespace only*, which is what lets this work
+/// unprivileged. Some distributions restrict unprivileged user namespaces (e.g.
+/// AppArmor's `kernel.apparmor_restrict_unprivileged_userns`), and there the
+/// call fails — which surfaces as a refusal, never as a silent fallback to an
+/// unrestricted network.
+#[cfg(target_os = "linux")]
+fn deny_network() -> Result<(), SandboxError> {
+    use nix::sched::{CloneFlags, unshare};
+
+    unshare(CloneFlags::CLONE_NEWUSER | CloneFlags::CLONE_NEWNET).map_err(|errno| {
+        SandboxError::NetworkDenialFailed {
+            detail: match errno {
+                nix::errno::Errno::EPERM => {
+                    "kernel refused an unprivileged user namespace; unprivileged \
+                     userns may be disabled (see kernel.unprivileged_userns_clone \
+                     and kernel.apparmor_restrict_unprivileged_userns)"
+                }
+                _ => "could not create a network namespace",
+            },
+        }
+    })
 }
 
 #[cfg(not(target_os = "linux"))]

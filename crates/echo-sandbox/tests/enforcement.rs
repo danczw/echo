@@ -137,3 +137,51 @@ fn malformed_arguments_do_not_run_the_command() {
         "helper ran the command despite refusing its arguments"
     );
 }
+
+/// Network denial comes from an empty network namespace, not from Landlock.
+///
+/// A fresh netns has only the loopback interface, so reading the caller's own
+/// interface list is a hermetic check — no external network required.
+#[test]
+fn network_is_denied_by_default() {
+    let policy = runtime_paths(SandboxPolicy::default()).allow_read("/proc");
+    let output = run(&policy, "/bin/cat", &["/proc/self/net/dev"]);
+
+    assert!(
+        output.status.success(),
+        "could not read the interface list: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let interfaces = String::from_utf8_lossy(&output.stdout);
+    let named: Vec<&str> = interfaces
+        .lines()
+        .skip(2) // two header lines
+        .filter_map(|l| l.split(':').next())
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .collect();
+
+    assert_eq!(
+        named,
+        vec!["lo"],
+        "a sandbox denying network must see only loopback, found: {named:?}"
+    );
+}
+
+/// The opposite direction: granting network must actually grant it, or the flag
+/// is decorative.
+#[test]
+fn allowed_network_keeps_host_interfaces() {
+    let policy = runtime_paths(SandboxPolicy::default())
+        .allow_read("/proc")
+        .allow_network();
+    let output = run(&policy, "/bin/cat", &["/proc/self/net/dev"]);
+
+    assert!(output.status.success());
+    let interfaces = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        interfaces.lines().skip(2).count() > 1,
+        "granting network should leave the host interfaces visible, got: {interfaces}"
+    );
+}

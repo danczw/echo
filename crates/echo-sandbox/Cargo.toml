@@ -13,6 +13,7 @@ sandbox-integration = []
 
 [dependencies]
 landlock = "0.4.7"
+nix = { version = "0.31.3", default-features = false, features = ["sched"] }
 
 # `unsafe_code` is forbidden here as everywhere else. The re-exec helper applies
 # restrictions in a fresh single-threaded process rather than in a pre_exec

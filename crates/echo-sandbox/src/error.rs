@@ -41,6 +41,15 @@ pub enum SandboxError {
         detail: String,
     },
 
+    /// The network could not be taken away from the sandboxed process.
+    ///
+    /// A refusal: running with network access the policy denied is worse than
+    /// not running at all.
+    NetworkDenialFailed {
+        /// What failed, for the operator to act on.
+        detail: &'static str,
+    },
+
     /// A sandboxed process could not be started.
     SpawnFailed {
         /// What failed, for the operator to act on.
@@ -88,6 +97,9 @@ impl std::fmt::Display for SandboxError {
             Self::Landlock { detail } => {
                 write!(f, "kernel refused the Landlock ruleset: {detail}")
             }
+            Self::NetworkDenialFailed { detail } => {
+                write!(f, "could not deny network access: {detail}")
+            }
         }
     }
 }
@@ -98,7 +110,8 @@ impl std::error::Error for SandboxError {
             Self::PathNotAllowed { .. }
             | Self::Unsupported { .. }
             | Self::BadHelperArgs { .. }
-            | Self::Landlock { .. } => None,
+            | Self::Landlock { .. }
+            | Self::NetworkDenialFailed { .. } => None,
             Self::Unresolvable { source, .. } | Self::SpawnFailed { source, .. } => Some(source),
         }
     }
