@@ -9,16 +9,21 @@
 //! - [`FsGuard`] checks paths in-process, for tools written in Rust that never
 //!   spawn anything and so are never seen by the kernel enforcement.
 //! - Kernel enforcement (Landlock, seccomp, namespaces) restricts child
-//!   processes, and is applied between `fork` and `exec`.
+//!   processes. echo re-execs a helper which applies the restrictions to
+//!   *itself* and then becomes the command, so echo is never caged by them.
 //!
 //! Both are default-deny: see [`SandboxPolicy`].
 
 mod error;
 mod fs_guard;
+mod helper;
+mod helper_args;
 mod policy;
 mod support;
 
 pub use error::SandboxError;
 pub use fs_guard::FsGuard;
+pub use helper::exec_sandboxed;
+pub use helper_args::HelperArgs;
 pub use policy::SandboxPolicy;
 pub use support::KernelSupport;
