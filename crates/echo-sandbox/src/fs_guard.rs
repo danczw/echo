@@ -48,6 +48,23 @@ impl FsGuard {
         let resolved = match canonicalize(path) {
             Ok(existing) => existing,
             Err(_) => {
+                // `canonicalize` fails the same way on a nonexistent path and on
+                // a *dangling* symlink. Resolving only the parent would approve
+                // the link, and the caller's write would then follow it out of
+                // the root — so refuse a symlink leaf outright rather than
+                // treating it as a file yet to be created.
+                if path.symlink_metadata().is_ok_and(|m| m.is_symlink()) {
+                    crate::AuditEvent::denied(
+                        "write",
+                        &path.display().to_string(),
+                        "symlink leaf may resolve outside the allowed root",
+                    )
+                    .emit();
+                    return Err(SandboxError::PathNotAllowed {
+                        requested: path.to_path_buf(),
+                    });
+                }
+
                 let parent = path.parent().ok_or_else(|| SandboxError::PathNotAllowed {
                     requested: path.to_path_buf(),
                 })?;
