@@ -8,31 +8,22 @@ repository.workspace = true
 [features]
 # Opt-in suite that spawns real processes and asserts the kernel actually blocks
 # escapes. Excluded from the default `cargo test` run because it needs a Linux
-# kernel with Landlock (5.13+) and unprivileged user namespaces available.
-# Empty until Phase 1 adds the tests behind it.
+# kernel with Landlock (5.13+) available.
 sandbox-integration = []
 
 [dependencies]
 landlock = "0.4.7"
 
-# NOTE: deliberately does NOT inherit `[workspace.lints]`, which sets
-# `unsafe_code = "forbid"` (unoverridable). This is the only crate allowed to
-# use `unsafe` or to spawn subprocesses directly.
+# `unsafe_code` is forbidden here as everywhere else. The re-exec helper applies
+# restrictions in a fresh single-threaded process rather than in a pre_exec
+# closure, so every call it needs (`CommandExt::exec`, `restrict_self`) is a safe
+# function and no exemption is warranted.
 #
-# It is `deny`, not `allow`: every `unsafe` block must be explicitly annotated
-# with `#[allow(unsafe_code)]` plus a SAFETY comment, so each one is a
-# deliberate, reviewable decision rather than a crate-wide exemption.
-#
-# Expected sole use: `CommandExt::pre_exec`, which applies the Landlock/seccomp
-# restrictions in the child between fork() and exec() — so the child is
-# sandboxed without echo restricting itself. It is unsafe because only
-# async-signal-safe calls are legal in that window (post-fork, a multithreaded
-# parent leaves other threads' locks permanently held in the child).
+# The crate does NOT inherit `[workspace.lints]`, because it must opt out of the
+# workspace-wide `disallowed_methods` ban on spawning subprocesses — this is the
+# one crate allowed to do that, and it does so behind its own API.
 [lints.rust]
-unsafe_code = "deny"
-
-[lints.clippy]
-disallowed_methods = "deny"
+unsafe_code = "forbid"
 
 [dev-dependencies]
 tempfile = "3.27.0"
