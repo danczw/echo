@@ -8,7 +8,7 @@ repository.workspace = true
 [features]
 # Opt-in suite that spawns real processes and asserts the kernel actually blocks
 # escapes. Excluded from the default `cargo test` run because it needs a Linux
-# kernel with Landlock (5.13+) available.
+# kernel with Landlock ABI 5 (6.10+) available.
 sandbox-integration = []
 
 [dependencies]
