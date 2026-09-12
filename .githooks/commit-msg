@@ -1,0 +1,47 @@
+#!/bin/sh
+# Commit-msg hook: enforce Conventional Commits on the subject line.
+#
+# Enabled by the same setting as the pre-commit hook:
+#     git config core.hooksPath .githooks
+#
+# Git passes the path to the prepared message as $1. Only the subject (first
+# non-comment line) is checked; the body is free-form.
+#
+# Bypass in an emergency with `git commit --no-verify`.
+
+set -e
+
+subject=$(grep -v '^#' "$1" | sed '/^[[:space:]]*$/d' | head -n 1)
+
+# Git's own generated messages are not ours to police, and fixup/squash markers
+# are rewritten by the rebase they are made for.
+case "$subject" in
+    "Merge "* | "Revert "* | "fixup!"* | "squash!"* | "amend!"*)
+        exit 0
+        ;;
+esac
+
+# type(scope)!: description
+#   type    required, from the fixed set below
+#   (scope) optional
+#   !       optional, marks a breaking change
+types='feat|fix|docs|refactor|test|chore|build|ci'
+pattern="^($types)(\([a-z0-9._/-]+\))?!?: .+"
+
+if ! printf '%s' "$subject" | grep -Eq "$pattern"; then
+    echo "commit-msg: subject does not follow Conventional Commits." >&2
+    echo >&2
+    echo "  got:      $subject" >&2
+    echo "  expected: <type>(<scope>): <description>" >&2
+    echo "  types:    $(printf '%s' "$types" | tr '|' ' ')" >&2
+    echo >&2
+    echo "  e.g. feat(sandbox): deny network via an empty namespace" >&2
+    exit 1
+fi
+
+# Long subjects get truncated in logs and UIs. 72 is the conventional ceiling.
+if [ "${#subject}" -gt 72 ]; then
+    echo "commit-msg: subject is ${#subject} characters; keep it under 72." >&2
+    echo "  $subject" >&2
+    exit 1
+fi
