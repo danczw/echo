@@ -58,7 +58,7 @@ jobs:
 
       # The sandbox is the point of this project, so verify the runner can
       # actually enforce before trusting a green check. Landlock needs kernel
-      # 5.13+; unprivileged userns is disabled by sysctl on some hardened images.
+      # ABI 5 (6.10+); unprivileged userns is disabled by sysctl on some hardened images.
       - name: Report kernel sandbox support
         run: |
           uname -r

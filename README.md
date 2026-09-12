@@ -12,15 +12,16 @@ runs goes through a Landlock + seccomp boundary, and the sandbox fails closed
 rather than degrading to unrestricted execution.
 
 > **Pre-alpha.** Not usable yet — there is no agent, only the sandbox beneath
-> it. Enforced today on Linux: filesystem (Landlock), network (empty netns),
-> dangerous syscalls (seccomp). Unsupported kernels are refused, never run
-> unrestricted. Do not assume a version sandboxes anything until it says so.
+> it. Enforced today on Linux 6.10+: filesystem (Landlock), network (empty
+> netns), dangerous syscalls (seccomp). Kernels that cannot enforce are refused,
+> never run unrestricted. Do not assume a version sandboxes anything until it
+> says so.
 
 ## Development
 
 ```sh
 cargo test --workspace                                 # default suite
-cargo test --workspace --features sandbox-integration  # needs Linux kernel ≥ 5.13
+cargo test --workspace --features sandbox-integration  # needs Linux kernel ≥ 6.10
 cargo clippy --workspace --all-targets -- -D warnings
 git config core.hooksPath .githooks                    # fmt + clippy on commit
 ```
