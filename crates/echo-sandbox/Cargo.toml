@@ -39,3 +39,8 @@ tracing-subscriber = "0.3.23"
 name = "echo-truncate-probe"
 path = "tests/support/truncate_probe.rs"
 required-features = ["sandbox-integration"]
+
+[[bin]]
+name = "echo-unix-probe"
+path = "tests/support/unix_probe.rs"
+required-features = ["sandbox-integration"]

@@ -64,7 +64,7 @@ fn apply(policy: &crate::SandboxPolicy) -> Result<(), SandboxError> {
         detail: format!("could not set no_new_privs: {errno}"),
     })?;
 
-    deny_dangerous_syscalls()?;
+    deny_dangerous_syscalls(policy)?;
 
     // Landlock leaves access types that are NOT in the handled set unrestricted
     // *everywhere*. Pinning a low ABI therefore does not mean "enforce less"; it
@@ -144,10 +144,13 @@ fn apply(policy: &crate::SandboxPolicy) -> Result<(), SandboxError> {
 /// does not execute either way; `EPERM` is what tools already expect on hardened
 /// systems, so they fail that operation instead of dying mid-run.
 #[cfg(target_os = "linux")]
-fn deny_dangerous_syscalls() -> Result<(), SandboxError> {
+fn deny_dangerous_syscalls(policy: &crate::SandboxPolicy) -> Result<(), SandboxError> {
     use std::collections::BTreeMap;
 
-    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
+    use seccompiler::{
+        BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
+        SeccompRule,
+    };
 
     let blocked = [
         // Inspect or modify other processes.
@@ -182,10 +185,36 @@ fn deny_dangerous_syscalls() -> Result<(), SandboxError> {
 
     // An empty rule vector means "match this syscall unconditionally", so every
     // listed number takes `match_action` and everything else is allowed.
-    let rules = blocked
+    let mut rules = blocked
         .into_iter()
         .map(|nr| (nr, Vec::new()))
         .collect::<BTreeMap<_, _>>();
+
+    // A network namespace isolates only *abstract* unix sockets. Pathname
+    // sockets live in the filesystem, so a policy that denies network would
+    // otherwise still let a command dial host daemons — systemd's bus,
+    // docker.sock, an ssh-agent — and have them act outside the sandbox.
+    //
+    // Landlock gained a right for this in ABI V9 (Linux 6.15), which `apply`
+    // handles best-effort. This covers the kernels below that, where no such
+    // right exists.
+    //
+    // `socketpair` is deliberately left alone: it creates an anonymous pair with
+    // no filesystem path, cannot reach a host daemon, and is used routinely by
+    // shells. Blocking it would break real tools for no security gain.
+    if !policy.allows_network() {
+        let af_unix = SeccompCondition::new(
+            0,
+            SeccompCmpArgLen::Dword,
+            SeccompCmpOp::Eq,
+            libc::AF_UNIX as u64,
+        )
+        .map_err(seccomp_failed)?;
+        rules.insert(
+            libc::SYS_socket,
+            vec![SeccompRule::new(vec![af_unix]).map_err(seccomp_failed)?],
+        );
+    }
 
     let filter = SeccompFilter::new(
         rules,
