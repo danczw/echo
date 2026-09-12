@@ -11,8 +11,10 @@ sandboxed tool execution as part of the harness itself: every command an agent
 runs goes through a Landlock + seccomp boundary, and the sandbox fails closed
 rather than degrading to unrestricted execution.
 
-> **Pre-alpha.** Not usable yet. Each release states which enforcement is
-> actually active — do not assume a version sandboxes anything until it says so.
+> **Pre-alpha.** Not usable yet — there is no agent, only the sandbox beneath
+> it. Enforced today on Linux: filesystem (Landlock), network (empty netns),
+> dangerous syscalls (seccomp). Unsupported kernels are refused, never run
+> unrestricted. Do not assume a version sandboxes anything until it says so.
 
 ## Development
 
@@ -23,9 +25,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 git config core.hooksPath .githooks                    # fmt + clippy on commit
 ```
 
-`unsafe` is forbidden workspace-wide except in `echo-sandbox`, and spawning a
-subprocess outside it is a clippy error — the sandbox boundary is enforced by
-the build, not by convention alone.
+`unsafe` is forbidden in every crate, including `echo-sandbox`, and spawning a
+subprocess outside `echo-sandbox` is a clippy error — the sandbox boundary is
+enforced by the build, not by convention alone.
 
 ## License
 
