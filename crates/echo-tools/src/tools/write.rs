@@ -19,21 +19,23 @@ pub struct WriteInput {
 /// leaf, which matters here: the agent can plant symlinks in any writable root,
 /// and following one would land the write outside the policy.
 pub fn execute(input: WriteInput, ctx: &ExecutionContext) -> Result<ToolOutput, ToolError> {
-    let resolved = ctx
+    let mut file = ctx
         .guard()
-        .check_write(&input.path)
+        .open_write(&input.path)
         .map_err(crate::denied(&input.path))?;
 
-    std::fs::write(&resolved, &input.content).map_err(|error| ToolError::Failed {
-        subject: format!("write {}", input.path.display()),
-        detail: error.to_string(),
+    std::io::Write::write_all(&mut file, input.content.as_bytes()).map_err(|error| {
+        ToolError::Failed {
+            subject: format!("write {}", input.path.display()),
+            detail: error.to_string(),
+        }
     })?;
 
     Ok(ToolOutput {
         content: format!(
             "wrote {} bytes to {}",
             input.content.len(),
-            resolved.display()
+            input.path.display()
         ),
     })
 }

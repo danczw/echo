@@ -42,10 +42,15 @@ pub fn execute(input: GrepInput, ctx: &ExecutionContext) -> Result<ToolOutput, T
             continue;
         }
 
-        // Binary files fail UTF-8 validation and are skipped, not mangled.
-        let Ok(content) = std::fs::read_to_string(&file) else {
+        // Opened through the guard so the handle, not a re-resolved path, is
+        // what gets read. Binary files fail UTF-8 validation and are skipped.
+        let Ok(mut handle) = ctx.guard().open_read(&file) else {
             continue;
         };
+        let mut content = String::new();
+        if std::io::Read::read_to_string(&mut handle, &mut content).is_err() {
+            continue;
+        }
 
         for (number, line) in content.lines().enumerate() {
             if line.contains(&input.pattern) {
