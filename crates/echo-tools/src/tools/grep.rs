@@ -4,6 +4,15 @@ use serde::Deserialize;
 
 use crate::{ExecutionContext, ToolError, ToolOutput};
 
+/// Files above this size are skipped without reading.
+///
+/// A source file is never this large, while a repository checkout is full of
+/// pack files, build output and vendored binaries that are. Reading them costs
+/// time and peak memory to produce nothing, since they fail UTF-8 validation
+/// anyway — and `read_to_string` only discovers that *after* allocating the
+/// whole file.
+const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
 /// Arguments for the `grep` tool.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GrepInput {
@@ -19,61 +28,39 @@ pub struct GrepInput {
 /// dependency and a whole class of pathological-pattern behaviour, for a tool
 /// whose common use is "find where this symbol is mentioned".
 pub fn execute(input: GrepInput, ctx: &ExecutionContext) -> Result<ToolOutput, ToolError> {
-    let root = ctx
+    let files = ctx
         .guard()
-        .check_read(&input.path)
-        .map_err(|error| ToolError::Denied {
-            subject: input.path.display().to_string(),
-            reason: error.to_string(),
-        })?;
+        .walk_readable(&input.path)
+        .map_err(crate::denied(&input.path))?;
 
     let mut hits = Vec::new();
-    let mut stack = vec![root];
 
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue; // an unreadable subdirectory is skipped, not fatal
+    for file in files {
+        // Checked before opening rather than after: `read_to_string` would read
+        // the whole file before failing UTF-8 validation on a binary.
+        if file.metadata().is_ok_and(|m| m.len() > MAX_FILE_BYTES) {
+            continue;
+        }
+
+        // Binary files fail UTF-8 validation and are skipped, not mangled.
+        let Ok(content) = std::fs::read_to_string(&file) else {
+            continue;
         };
 
-        for entry in entries.flatten() {
-            let path = entry.path();
-
-            // Re-check every path rather than trusting the walk: a symlink in a
-            // readable directory can point outside the allowed roots.
-            let Ok(resolved) = ctx.guard().check_read(&path) else {
-                continue;
-            };
-
-            if entry.file_type().is_ok_and(|t| t.is_dir()) {
-                stack.push(resolved);
-                continue;
-            }
-
-            // Binary files are skipped rather than mangled into the output.
-            let Ok(content) = std::fs::read_to_string(&resolved) else {
-                continue;
-            };
-
-            for (number, line) in content.lines().enumerate() {
-                if line.contains(&input.pattern) {
-                    hits.push(format!(
-                        "{}:{}: {}",
-                        resolved.display(),
-                        number + 1,
-                        line.trim()
-                    ));
-                }
+        for (number, line) in content.lines().enumerate() {
+            if line.contains(&input.pattern) {
+                hits.push((file.clone(), number + 1, line.trim().to_string()));
             }
         }
     }
 
-    hits.sort();
+    // Sort on the parts, not on the rendered line: sorting formatted strings
+    // orders line numbers lexicographically, putting `:10` before `:2`.
+    hits.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
 
-    Ok(ToolOutput {
-        content: if hits.is_empty() {
-            "no matches".to_string()
-        } else {
-            hits.join("\n")
-        },
-    })
+    Ok(crate::listing(
+        hits.into_iter()
+            .map(|(path, line, text)| format!("{}:{}: {}", path.display(), line, text))
+            .collect(),
+    ))
 }

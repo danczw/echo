@@ -19,10 +19,7 @@ pub fn execute(input: LsInput, ctx: &ExecutionContext) -> Result<ToolOutput, Too
     let resolved = ctx
         .guard()
         .check_read(&input.path)
-        .map_err(|error| ToolError::Denied {
-            subject: input.path.display().to_string(),
-            reason: error.to_string(),
-        })?;
+        .map_err(crate::denied(&input.path))?;
 
     let entries = std::fs::read_dir(&resolved).map_err(|error| ToolError::Failed {
         subject: format!("list {}", input.path.display()),

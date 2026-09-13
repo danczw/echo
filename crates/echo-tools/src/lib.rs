@@ -90,6 +90,29 @@ impl BuiltinTool {
     }
 }
 
+/// Turn a guard refusal into the form the model sees.
+///
+/// Every filesystem tool needs this and they must agree on the shape, so it
+/// lives here rather than being re-derived per tool.
+pub(crate) fn denied(path: &std::path::Path) -> impl Fn(echo_sandbox::SandboxError) -> ToolError {
+    let subject = path.display().to_string();
+    move |error| ToolError::Denied {
+        subject: subject.clone(),
+        reason: error.to_string(),
+    }
+}
+
+/// Render a list of results, distinguishing "none" from an empty string.
+pub(crate) fn listing(lines: Vec<String>) -> ToolOutput {
+    ToolOutput {
+        content: if lines.is_empty() {
+            "no matches".to_string()
+        } else {
+            lines.join("\n")
+        },
+    }
+}
+
 /// Parse tool arguments, reporting a schema mismatch rather than a panic.
 fn parse<T: serde::de::DeserializeOwned>(input: serde_json::Value) -> Result<T, ToolError> {
     serde_json::from_value(input).map_err(|error| ToolError::BadInput {

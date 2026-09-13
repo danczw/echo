@@ -39,6 +39,70 @@ impl FsGuard {
         permit(resolved, &self.readable, path, "read")
     }
 
+    /// Every regular file beneath `root` that this guard permits reading.
+    ///
+    /// Exists here rather than in each tool because the confinement rule is the
+    /// guard's to define: a tool that walks a tree itself has to remember that a
+    /// symlink inside a readable directory can point anywhere, and a tool that
+    /// forgets is a silent escape.
+    ///
+    /// **Symlinks are never followed into.** A symlinked directory is not
+    /// descended, which also makes the walk cycle-safe; a symlinked file is
+    /// included only if it resolves inside an allowed root.
+    ///
+    /// Only regular files are returned. FIFOs, sockets and devices are skipped —
+    /// reading a FIFO with no writer blocks forever, which would wedge the
+    /// caller rather than return.
+    ///
+    /// Entries are returned sorted, since `read_dir` order is
+    /// filesystem-dependent.
+    pub fn walk_readable(&self, root: &Path) -> Result<Vec<PathBuf>, SandboxError> {
+        // One check for the root, which also records one audit decision for the
+        // walk. Checking every entry would emit thousands of "agent read this"
+        // records for files never opened, corrupting the trail it feeds.
+        let root = self.check_read(root)?;
+
+        let mut files = Vec::new();
+        let mut stack = vec![root];
+
+        while let Some(dir) = stack.pop() {
+            // An unreadable subdirectory is skipped, not fatal.
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+
+            for entry in entries.flatten() {
+                let Ok(file_type) = entry.file_type() else {
+                    continue;
+                };
+
+                // `dir` is canonical and `read_dir` never yields `.` or `..`, so
+                // a non-symlink child of it is canonical too — no need to pay
+                // `canonicalize` per entry. Only a symlink can leave the root,
+                // and only those are re-checked.
+                if file_type.is_symlink() {
+                    let Ok(resolved) = self.check_read(&entry.path()) else {
+                        continue;
+                    };
+                    if resolved.is_file() {
+                        files.push(resolved);
+                    }
+                    continue;
+                }
+
+                let path = dir.join(entry.file_name());
+                if file_type.is_dir() {
+                    stack.push(path);
+                } else if file_type.is_file() {
+                    files.push(path);
+                }
+            }
+        }
+
+        files.sort();
+        Ok(files)
+    }
+
     /// Permit writing `path`, returning its resolved location.
     ///
     /// Unlike reads, the target need not exist yet — writes create files. Only

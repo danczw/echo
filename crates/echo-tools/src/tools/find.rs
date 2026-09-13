@@ -15,47 +15,22 @@ pub struct FindInput {
 
 /// Find files beneath a directory whose name contains a substring.
 pub fn execute(input: FindInput, ctx: &ExecutionContext) -> Result<ToolOutput, ToolError> {
-    let root = ctx
+    let files = ctx
         .guard()
-        .check_read(&input.path)
-        .map_err(|error| ToolError::Denied {
-            subject: input.path.display().to_string(),
-            reason: error.to_string(),
-        })?;
+        .walk_readable(&input.path)
+        .map_err(crate::denied(&input.path))?;
 
-    let mut found = Vec::new();
-    let mut stack = vec![root];
+    // Matched against the name being reported, not the name it was reached by:
+    // reporting one path while having matched a different one gives the model a
+    // result whose filename does not contain what it searched for.
+    let found = files
+        .into_iter()
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().contains(&input.name))
+        })
+        .map(|path| path.display().to_string())
+        .collect();
 
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-
-        for entry in entries.flatten() {
-            // Re-checked per entry: a symlink inside a readable directory can
-            // point outside the allowed roots.
-            let Ok(resolved) = ctx.guard().check_read(&entry.path()) else {
-                continue;
-            };
-
-            if entry.file_type().is_ok_and(|t| t.is_dir()) {
-                stack.push(resolved);
-                continue;
-            }
-
-            if entry.file_name().to_string_lossy().contains(&input.name) {
-                found.push(resolved.display().to_string());
-            }
-        }
-    }
-
-    found.sort();
-
-    Ok(ToolOutput {
-        content: if found.is_empty() {
-            "no matches".to_string()
-        } else {
-            found.join("\n")
-        },
-    })
+    Ok(crate::listing(found))
 }

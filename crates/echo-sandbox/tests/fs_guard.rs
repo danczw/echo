@@ -3,6 +3,10 @@
 //! These go through the public API only — the same surface a consumer has — so
 //! a pass here is evidence the boundary actually holds, not that the test could
 //! reach internals no real caller can.
+// `mkfifo` is spawned to build a test fixture — a named pipe cannot be
+// created through std. This is not code executing around the sandbox,
+// which is what the workspace ban on `Command::new` exists to stop.
+#![allow(clippy::disallowed_methods)]
 
 use echo_sandbox::{FsGuard, SandboxPolicy};
 
@@ -168,4 +172,97 @@ fn write_to_new_file_beside_a_symlink_still_works() {
     let guard = FsGuard::new(&SandboxPolicy::default().allow_write(root.path())).unwrap();
 
     assert!(guard.check_write(&root.path().join("fresh.txt")).is_ok());
+}
+
+/// A symlink to a *file* outside the root must not be walked into.
+///
+/// This is the case that actually exercises the per-entry check. A symlink to a
+/// *directory* does not: `DirEntry::file_type` is lstat-based, so `is_dir()` is
+/// false for it and the walk never descends regardless. Mutation testing showed
+/// directory-symlink tests stay green with the check deleted entirely.
+#[cfg(unix)]
+#[test]
+fn walk_does_not_follow_a_symlink_to_a_file_outside_the_root() {
+    let root = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let secret = elsewhere.path().join("secret.txt");
+    std::fs::write(&secret, b"SECRET").unwrap();
+
+    std::os::unix::fs::symlink(&secret, root.path().join("innocent.txt")).unwrap();
+    std::fs::write(root.path().join("ours.txt"), b"ours").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+    let found = guard.walk_readable(root.path()).unwrap();
+
+    assert!(
+        !found.iter().any(|p| p == &secret),
+        "walk followed a symlink to a file outside the root: {found:?}"
+    );
+    assert_eq!(found.len(), 1, "expected only the in-root file: {found:?}");
+}
+
+/// A symlink to a file *inside* the root is still reachable, or the test above
+/// would pass on a walk that simply skips every symlink.
+#[cfg(unix)]
+#[test]
+fn walk_includes_a_symlink_to_a_file_inside_the_root() {
+    let root = tempfile::tempdir().unwrap();
+    let real = root.path().join("real.txt");
+    std::fs::write(&real, b"real").unwrap();
+    std::os::unix::fs::symlink(&real, root.path().join("alias.txt")).unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+    let found = guard.walk_readable(root.path()).unwrap();
+
+    assert!(
+        found.contains(&real.canonicalize().unwrap()),
+        "got {found:?}"
+    );
+}
+
+/// A FIFO must not be returned: reading one with no writer blocks forever.
+#[cfg(unix)]
+#[test]
+fn walk_skips_non_regular_files() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("ordinary.txt"), b"x").unwrap();
+
+    let fifo = root.path().join("pipe");
+    let status = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo should run");
+    assert!(status.success());
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+    let found = guard.walk_readable(root.path()).unwrap();
+
+    assert!(
+        !found.iter().any(|p| p == &fifo),
+        "FIFO returned: {found:?}"
+    );
+    assert_eq!(found.len(), 1, "got {found:?}");
+}
+
+/// Subdirectories are descended.
+#[test]
+fn walk_descends_real_subdirectories() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("sub")).unwrap();
+    std::fs::write(root.path().join("sub/deep.txt"), b"d").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+    let found = guard.walk_readable(root.path()).unwrap();
+
+    assert_eq!(found.len(), 1, "got {found:?}");
+    assert!(found[0].ends_with("deep.txt"));
+}
+
+#[test]
+fn walk_refuses_a_root_outside_the_policy() {
+    let allowed = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(allowed.path())).unwrap();
+    assert!(guard.walk_readable(elsewhere.path()).is_err());
 }
