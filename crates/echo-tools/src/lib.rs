@@ -45,6 +45,29 @@ pub enum BuiltinTool {
 }
 
 impl BuiltinTool {
+    /// Every tool an agent can be offered.
+    ///
+    /// This is the registry. The variant set is closed and fieldless, so a
+    /// lookup structure would be a `HashMap` wrapping seven entries that a
+    /// linear scan resolves just as fast; the array is the whole thing.
+    pub const ALL: [Self; 7] = [
+        Self::Read,
+        Self::Write,
+        Self::Bash,
+        Self::Edit,
+        Self::Ls,
+        Self::Grep,
+        Self::Find,
+    ];
+
+    /// Resolve the name a model called back with.
+    ///
+    /// Exact match only: a model asking for `Read` is not asking for `read`,
+    /// and quietly accepting near-misses would hide a prompt or schema bug.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|tool| tool.name() == name)
+    }
+
     /// The name the model calls this tool by.
     pub fn name(&self) -> &'static str {
         match self {
