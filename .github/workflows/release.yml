@@ -23,7 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # musl, not gnu: a glibc build carries the build machine's glibc as a
+      # *minimum* version, so a binary built on the current runner refuses to
+      # start on any older distribution. v0.1.0-alpha.1 shipped that way and
+      # could not run on Ubuntu 22.04. Static musl has no such floor.
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
 
       - uses: Swatinem/rust-cache@v2
 
@@ -47,14 +53,19 @@ jobs:
         run: cargo test --workspace --features sandbox-integration
 
       - name: Build
-        run: cargo build --release --locked -p echo-cli
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl -p echo-cli
 
       - name: Package
         id: package
         run: |
-          name="echo-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          name="echo-${GITHUB_REF_NAME}-x86_64-unknown-linux-musl"
           mkdir -p "dist/$name"
-          cp target/release/echo README.md LICENSE "dist/$name/"
+          cp target/x86_64-unknown-linux-musl/release/echo README.md LICENSE "dist/$name/"
+          # Static by construction, not by intention. If this ever reports a
+          # dynamic executable, the archive would carry a hidden glibc floor
+          # again and the check should stop the release.
+          file "dist/$name/echo" | grep -q "statically linked\|static-pie" \
+            || { echo "::error::binary is not statically linked"; exit 1; }
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           # Lets anyone verify the download matches what this run produced.
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
