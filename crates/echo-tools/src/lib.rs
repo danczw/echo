@@ -11,10 +11,12 @@
 
 mod context;
 mod error;
+mod limits;
 mod tools;
 
 pub use context::ExecutionContext;
 pub use error::ToolError;
+pub use limits::OutputLimits;
 
 /// What a tool produced, as the model will see it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,14 +104,16 @@ pub(crate) fn denied(path: &std::path::Path) -> impl Fn(echo_sandbox::SandboxErr
     }
 }
 
-/// Render a list of results, distinguishing "none" from an empty string.
-pub(crate) fn listing(lines: Vec<String>) -> ToolOutput {
+/// Render a list of results, bounded, distinguishing "none" from empty output.
+pub(crate) fn listing(lines: Vec<String>, ctx: &ExecutionContext) -> ToolOutput {
+    if lines.is_empty() {
+        return ToolOutput {
+            content: "no matches".to_string(),
+        };
+    }
+
     ToolOutput {
-        content: if lines.is_empty() {
-            "no matches".to_string()
-        } else {
-            lines.join("\n")
-        },
+        content: ctx.limits().take_entries(lines).join("\n"),
     }
 }
 

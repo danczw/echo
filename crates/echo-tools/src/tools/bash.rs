@@ -38,7 +38,10 @@ pub fn execute(input: BashInput, ctx: &ExecutionContext) -> Result<ToolOutput, T
 
     if output.status.success() {
         return Ok(ToolOutput {
-            content: combine(&stdout, &stderr),
+            // The largest unbounded source of all: the command chooses how much
+            // it prints, and `cat` on a large file would otherwise return every
+            // byte of it.
+            content: ctx.limits().take_bytes(combine(&stdout, &stderr)),
         });
     }
 
@@ -52,7 +55,7 @@ pub fn execute(input: BashInput, ctx: &ExecutionContext) -> Result<ToolOutput, T
                 .status
                 .code()
                 .map_or_else(|| "signal".to_string(), |c| c.to_string()),
-            combine(&stdout, &stderr)
+            ctx.limits().take_bytes(combine(&stdout, &stderr))
         ),
     })
 }

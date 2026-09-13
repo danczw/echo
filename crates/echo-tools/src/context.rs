@@ -1,5 +1,7 @@
 use echo_sandbox::{FsGuard, SandboxError, SandboxPolicy};
 
+use crate::OutputLimits;
+
 /// What a tool is allowed to touch, and the machinery for enforcing it.
 ///
 /// Built once per session from a [`SandboxPolicy`] and shared by every tool
@@ -11,6 +13,7 @@ pub struct ExecutionContext {
     guard: FsGuard,
     policy: SandboxPolicy,
     helper: Option<std::path::PathBuf>,
+    limits: OutputLimits,
 }
 
 impl ExecutionContext {
@@ -20,6 +23,7 @@ impl ExecutionContext {
             guard: FsGuard::new(&policy)?,
             policy,
             helper: None,
+            limits: OutputLimits::default(),
         })
     }
 
@@ -33,6 +37,18 @@ impl ExecutionContext {
     pub fn with_helper(mut self, path: impl AsRef<std::path::Path>) -> Self {
         self.helper = Some(path.as_ref().to_path_buf());
         self
+    }
+
+    /// Bound tool output differently from the defaults.
+    #[must_use]
+    pub fn with_limits(mut self, limits: OutputLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    /// How much tools may return.
+    pub fn limits(&self) -> &OutputLimits {
+        &self.limits
     }
 
     /// An explicit helper, if one was set.

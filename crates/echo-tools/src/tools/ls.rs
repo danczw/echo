@@ -41,7 +41,5 @@ pub fn execute(input: LsInput, ctx: &ExecutionContext) -> Result<ToolOutput, Too
     // unchanged directory does not look different between calls.
     names.sort();
 
-    Ok(ToolOutput {
-        content: names.join("\n"),
-    })
+    Ok(crate::listing(names, ctx))
 }

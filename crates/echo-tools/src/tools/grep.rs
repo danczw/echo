@@ -62,5 +62,6 @@ pub fn execute(input: GrepInput, ctx: &ExecutionContext) -> Result<ToolOutput, T
         hits.into_iter()
             .map(|(path, line, text)| format!("{}:{}: {}", path.display(), line, text))
             .collect(),
+        ctx,
     ))
 }
