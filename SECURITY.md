@@ -57,6 +57,10 @@ Two properties matter as much as the list:
   elsewhere is a clippy error, but a determined contributor can add raw syscalls.
 - **Approval is not enforcement.** A tool call you approve runs. echo bounds
   what it can reach; it does not decide whether it should run.
+- **Nothing is resource-limited.** There is no timeout, no CPU or memory bound,
+  and no limit on processes spawned. A command that never exits blocks the
+  harness until you kill it ([#22](https://github.com/danczw/echo/issues/22)).
+  The sandbox governs *what* a command can reach, not *how much* it can consume.
 
 ## Known weaknesses
 
