@@ -8,16 +8,21 @@
 //! to be installed alongside.
 
 fn main() -> std::process::ExitCode {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
-
-    // On success this never returns — the process image is replaced. Reaching
-    // the next line therefore always means failure, and the command must NOT be
-    // run: falling through to an unrestricted execution is the exact failure the
-    // sandbox exists to prevent.
-    match echo_sandbox::exec_sandboxed(&argv) {
-        Err(error) => {
-            eprintln!("echo-sandbox-helper: {error}");
-            std::process::ExitCode::FAILURE
-        }
+    // Goes through the same dispatch the shipped `echo` binary uses, so this
+    // binary and production exercise one code path rather than two.
+    //
+    // In helper mode this never returns — the process image is replaced. Any
+    // return means failure, and the command must NOT be run: falling through to
+    // an unrestricted execution is the exact failure the sandbox exists to
+    // prevent.
+    if let Some(error) = echo_sandbox::dispatch_helper_mode(std::env::args_os()) {
+        eprintln!("echo-sandbox-helper: {error}");
+        return std::process::ExitCode::FAILURE;
     }
+
+    eprintln!(
+        "echo-sandbox-helper: expected {} as the first argument",
+        echo_sandbox::HELPER_FLAG
+    );
+    std::process::ExitCode::FAILURE
 }

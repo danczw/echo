@@ -30,17 +30,18 @@ fn carries_the_policy_into_the_command_line() {
     assert_eq!(&argv[argv.len() - 3..], &["/bin/sh", "-c", "true"]);
 }
 
-/// An explicit helper suppresses the dispatch flag: that binary is already a
-/// helper and does not need telling.
+/// Every helper is invoked the same way, explicit or not. Two calling
+/// conventions meant a binary could implement the wrong one and fail only at
+/// runtime.
 #[test]
-fn explicit_helper_takes_no_dispatch_flag() {
+fn explicit_helper_still_takes_the_dispatch_flag() {
     let (helper, argv) = SandboxedCommand::new("/bin/true", SandboxPolicy::default())
         .helper("/some/helper")
         .command_line()
         .unwrap();
 
     assert_eq!(helper, std::path::Path::new("/some/helper"));
-    assert!(!argv.contains(&HELPER_FLAG.to_string()));
+    assert_eq!(argv.first().map(String::as_str), Some(HELPER_FLAG));
 }
 
 /// End-to-end through the real helper: the policy is enforced by the kernel,

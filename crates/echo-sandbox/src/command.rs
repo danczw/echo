@@ -72,10 +72,15 @@ impl SandboxedCommand {
     /// Exposed so tests can assert the policy survives into argv without having
     /// to spawn anything.
     pub fn command_line(&self) -> Result<(PathBuf, Vec<String>), SandboxError> {
-        let (helper, mut argv) = match &self.helper {
-            Some(path) => (path.clone(), Vec::new()),
-            None => (current_exe()?, vec![HELPER_FLAG.to_string()]),
+        // Every helper speaks the same protocol: the flag, then the encoded
+        // policy. An explicit helper is still a helper — giving it a different
+        // calling convention meant two protocols and a silent mismatch when a
+        // binary implemented the other one.
+        let helper = match &self.helper {
+            Some(path) => path.clone(),
+            None => current_exe()?,
         };
+        let mut argv = vec![HELPER_FLAG.to_string()];
 
         argv.extend(HelperArgs::encode(&self.policy, &self.program, &self.args));
         Ok((helper, argv))
