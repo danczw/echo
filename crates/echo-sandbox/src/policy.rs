@@ -1,5 +1,8 @@
 use std::path::{Path, PathBuf};
 
+/// Where a system keeps the binaries and libraries a command needs to start.
+const SYSTEM_EXECUTABLE_PATHS: [&str; 4] = ["/usr", "/bin", "/lib", "/lib64"];
+
 /// What a sandboxed process is allowed to do.
 ///
 /// Default-deny: a policy grants nothing until something is explicitly added.
@@ -43,6 +46,30 @@ impl SandboxPolicy {
     pub fn allow_write(mut self, path: impl AsRef<Path>) -> Self {
         self.writable.push(path.as_ref().to_path_buf());
         self
+    }
+
+    /// Grant read access to the paths a command needs in order to start.
+    ///
+    /// Nothing runs without its loader and shared libraries: with a bare policy
+    /// even `/bin/true` dies before `main`, and the failure surfaces as a
+    /// permission error on `exec` rather than anything naming the cause. Every
+    /// caller that spawns a process needs this, so it is one grant here instead
+    /// of the same four paths copied per caller.
+    ///
+    /// Read-only, and deliberately narrow: system binaries and libraries, not
+    /// `/etc`, and never write access. Being able to run `ls` should not imply
+    /// being able to replace it.
+    ///
+    /// Paths absent on this system are skipped — distributions disagree about
+    /// `/lib64`, and Landlock rejects a rule for a path that does not exist,
+    /// which would turn that disagreement into a failure to sandbox at all.
+    #[must_use]
+    pub fn allow_system_executables(self) -> Self {
+        SYSTEM_EXECUTABLE_PATHS
+            .iter()
+            .map(Path::new)
+            .filter(|path| path.exists())
+            .fold(self, Self::allow_read)
     }
 
     /// Grant network access.
