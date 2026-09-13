@@ -67,8 +67,9 @@ jobs:
           echo "apparmor userns restriction: $(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo unset)"
 
       # These tests assert that escapes are actually blocked, not merely that
-      # the code compiles. The feature is declared but empty until Phase 1
-      # fills it in, so this currently passes with zero tests.
+      # the code compiles. Verified running for real on this runner (see
+      # context/SANDBOXING.md) — a zero-test result here means the gating
+      # broke, not that there is nothing to check.
       - name: Test (sandbox enforcement)
         run: cargo test --workspace --features sandbox-integration
 
