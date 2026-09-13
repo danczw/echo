@@ -30,6 +30,8 @@ pub enum BuiltinTool {
     Read,
     /// Create or replace a file.
     Write,
+    /// Run a shell command under the sandbox.
+    Bash,
 }
 
 impl BuiltinTool {
@@ -38,6 +40,7 @@ impl BuiltinTool {
         match self {
             Self::Read => "read",
             Self::Write => "write",
+            Self::Bash => "bash",
         }
     }
 
@@ -46,6 +49,7 @@ impl BuiltinTool {
         match self {
             Self::Read => schemars::schema_for!(tools::read::ReadInput),
             Self::Write => schemars::schema_for!(tools::write::WriteInput),
+            Self::Bash => schemars::schema_for!(tools::bash::BashInput),
         }
     }
 
@@ -61,6 +65,7 @@ impl BuiltinTool {
         match self {
             Self::Read => tools::read::execute(parse(input)?, ctx),
             Self::Write => tools::write::execute(parse(input)?, ctx),
+            Self::Bash => tools::bash::execute(parse(input)?, ctx),
         }
     }
 }
