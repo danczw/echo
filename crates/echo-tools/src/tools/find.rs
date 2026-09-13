@@ -32,5 +32,5 @@ pub fn execute(input: FindInput, ctx: &ExecutionContext) -> Result<ToolOutput, T
         .map(|path| path.display().to_string())
         .collect();
 
-    Ok(crate::listing(found))
+    Ok(crate::listing(found, ctx))
 }

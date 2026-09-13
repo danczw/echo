@@ -89,3 +89,17 @@ fn granted_paths_are_reachable() {
 
     assert!(out.content.contains("VISIBLE"), "got: {}", out.content);
 }
+
+/// `bash` output is bounded too: the command chooses how much it prints.
+#[test]
+fn output_is_bounded() {
+    let ctx = context(runnable(SandboxPolicy::default()))
+        .with_limits(echo_tools::OutputLimits::default().with_max_bytes(200));
+
+    let out = BuiltinTool::Bash
+        .execute(json!({ "command": "seq 1 100000" }), &ctx)
+        .unwrap();
+
+    assert!(out.content.contains("truncated"), "unbounded output");
+    assert!(out.content.len() < 1000, "got {} bytes", out.content.len());
+}

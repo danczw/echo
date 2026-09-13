@@ -31,5 +31,7 @@ pub fn execute(input: ReadInput, ctx: &ExecutionContext) -> Result<ToolOutput, T
         detail: error.to_string(),
     })?;
 
-    Ok(ToolOutput { content })
+    Ok(ToolOutput {
+        content: ctx.limits().take_bytes(content),
+    })
 }
