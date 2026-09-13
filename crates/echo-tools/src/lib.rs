@@ -32,6 +32,14 @@ pub enum BuiltinTool {
     Write,
     /// Run a shell command under the sandbox.
     Bash,
+    /// Replace an exact string in a file.
+    Edit,
+    /// List a directory.
+    Ls,
+    /// Search file contents for a literal string.
+    Grep,
+    /// Find files by name.
+    Find,
 }
 
 impl BuiltinTool {
@@ -41,6 +49,10 @@ impl BuiltinTool {
             Self::Read => "read",
             Self::Write => "write",
             Self::Bash => "bash",
+            Self::Edit => "edit",
+            Self::Ls => "ls",
+            Self::Grep => "grep",
+            Self::Find => "find",
         }
     }
 
@@ -50,6 +62,10 @@ impl BuiltinTool {
             Self::Read => schemars::schema_for!(tools::read::ReadInput),
             Self::Write => schemars::schema_for!(tools::write::WriteInput),
             Self::Bash => schemars::schema_for!(tools::bash::BashInput),
+            Self::Edit => schemars::schema_for!(tools::edit::EditInput),
+            Self::Ls => schemars::schema_for!(tools::ls::LsInput),
+            Self::Grep => schemars::schema_for!(tools::grep::GrepInput),
+            Self::Find => schemars::schema_for!(tools::find::FindInput),
         }
     }
 
@@ -66,6 +82,10 @@ impl BuiltinTool {
             Self::Read => tools::read::execute(parse(input)?, ctx),
             Self::Write => tools::write::execute(parse(input)?, ctx),
             Self::Bash => tools::bash::execute(parse(input)?, ctx),
+            Self::Edit => tools::edit::execute(parse(input)?, ctx),
+            Self::Ls => tools::ls::execute(parse(input)?, ctx),
+            Self::Grep => tools::grep::execute(parse(input)?, ctx),
+            Self::Find => tools::find::execute(parse(input)?, ctx),
         }
     }
 }
