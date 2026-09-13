@@ -17,7 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5.51", features = ["derive"] }
-echo-sandbox = { version = "0.1.0-alpha.1", path = "../echo-sandbox" }
+echo-sandbox = { path = "../echo-sandbox" }
 
 [lints]
 workspace = true
