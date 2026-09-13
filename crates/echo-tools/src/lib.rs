@@ -1,1 +1,68 @@
-//! Placeholder. See context/PLAN.md for this crate's role.
+//! Tools an agent can call, each confined by `echo-sandbox`.
+//!
+//! The built-ins split across the sandbox's two halves. `bash` spawns a process
+//! and is confined by the kernel (Landlock, netns, seccomp). The rest touch the
+//! filesystem in-process, so the kernel never sees them and `FsGuard` is what
+//! keeps them inside the policy.
+//!
+//! Dispatch is a closed enum rather than `dyn Tool`: the set is fixed and there
+//! is no plugin system, so the compiler can check exhaustiveness. That is the
+//! point at which to reach for trait objects, not before.
+
+mod context;
+mod error;
+mod tools;
+
+pub use context::ExecutionContext;
+pub use error::ToolError;
+
+/// What a tool produced, as the model will see it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolOutput {
+    /// Text handed back to the model.
+    pub content: String,
+}
+
+/// The tools an agent may call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltinTool {
+    /// Read a file.
+    Read,
+}
+
+impl BuiltinTool {
+    /// The name the model calls this tool by.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Read => "read",
+        }
+    }
+
+    /// JSON schema of this tool's arguments, derived from its input struct.
+    pub fn input_schema(&self) -> schemars::Schema {
+        match self {
+            Self::Read => schemars::schema_for!(tools::read::ReadInput),
+        }
+    }
+
+    /// Run the tool.
+    ///
+    /// Arguments are parsed against the schema first, so malformed input is
+    /// rejected before anything touches the filesystem.
+    pub fn execute(
+        &self,
+        input: serde_json::Value,
+        ctx: &ExecutionContext,
+    ) -> Result<ToolOutput, ToolError> {
+        match self {
+            Self::Read => tools::read::execute(parse(input)?, ctx),
+        }
+    }
+}
+
+/// Parse tool arguments, reporting a schema mismatch rather than a panic.
+fn parse<T: serde::de::DeserializeOwned>(input: serde_json::Value) -> Result<T, ToolError> {
+    serde_json::from_value(input).map_err(|error| ToolError::BadInput {
+        detail: error.to_string(),
+    })
+}
