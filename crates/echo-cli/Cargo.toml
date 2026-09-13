@@ -7,11 +7,17 @@ repository.workspace = true
 
 # The crate is `echo-cli` to keep the workspace naming consistent, but the
 # shipped command users type is `echo`.
+[lib]
+name = "echo_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "echo"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4.5.51", features = ["derive"] }
+echo-sandbox = { version = "0.1.0-alpha.1", path = "../echo-sandbox" }
 
 [lints]
 workspace = true
