@@ -10,6 +10,7 @@ use echo_sandbox::{FsGuard, SandboxError, SandboxPolicy};
 pub struct ExecutionContext {
     guard: FsGuard,
     policy: SandboxPolicy,
+    helper: Option<std::path::PathBuf>,
 }
 
 impl ExecutionContext {
@@ -18,7 +19,25 @@ impl ExecutionContext {
         Ok(Self {
             guard: FsGuard::new(&policy)?,
             policy,
+            helper: None,
         })
+    }
+
+    /// Spawn through a specific sandbox helper instead of re-executing the
+    /// current binary.
+    ///
+    /// The default assumes the running binary calls
+    /// `echo_sandbox::dispatch_helper_mode` at startup, which the shipped `echo`
+    /// does and a test harness does not.
+    #[must_use]
+    pub fn with_helper(mut self, path: impl AsRef<std::path::Path>) -> Self {
+        self.helper = Some(path.as_ref().to_path_buf());
+        self
+    }
+
+    /// An explicit helper, if one was set.
+    pub fn helper(&self) -> Option<&std::path::Path> {
+        self.helper.as_deref()
     }
 
     /// Path checks for tools that touch the filesystem in-process.
