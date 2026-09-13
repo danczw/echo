@@ -124,11 +124,11 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "echo-agent"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 
 [[package]]
 name = "echo-cli"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "clap",
  "echo-sandbox",
@@ -136,11 +136,11 @@ dependencies = [
 
 [[package]]
 name = "echo-providers"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 
 [[package]]
 name = "echo-sandbox"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "landlock",
  "libc",
@@ -153,11 +153,11 @@ dependencies = [
 
 [[package]]
 name = "echo-session"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 
 [[package]]
 name = "echo-tools"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "echo-sandbox",
  "schemars",
@@ -168,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "echo-tui"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 
 [[package]]
 name = "enumflags2"
