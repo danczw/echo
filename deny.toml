@@ -26,7 +26,13 @@ allow = [
 # Duplicate versions of the same crate bloat the binary and mean two copies of
 # any vulnerability. Warn rather than deny: transitive deps often force these.
 multiple-versions = "warn"
+# A wildcard version is a supply-chain hazard: `foo = "*"` accepts whatever the
+# registry serves. That reasoning does not apply to a path dependency, which
+# resolves to a directory in this repo and cannot be substituted by a registry.
+# Workspace crates carry no version for that reason, so allow the wildcard
+# exactly where it is one by construction, and keep denying it everywhere else.
 wildcards = "deny"
+allow-wildcard-paths = true
 
 [sources]
 # Only crates.io. A git or alternate-registry dependency sneaking in is a
