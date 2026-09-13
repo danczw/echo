@@ -28,6 +28,8 @@ pub struct ToolOutput {
 pub enum BuiltinTool {
     /// Read a file.
     Read,
+    /// Create or replace a file.
+    Write,
 }
 
 impl BuiltinTool {
@@ -35,6 +37,7 @@ impl BuiltinTool {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Read => "read",
+            Self::Write => "write",
         }
     }
 
@@ -42,6 +45,7 @@ impl BuiltinTool {
     pub fn input_schema(&self) -> schemars::Schema {
         match self {
             Self::Read => schemars::schema_for!(tools::read::ReadInput),
+            Self::Write => schemars::schema_for!(tools::write::WriteInput),
         }
     }
 
@@ -56,6 +60,7 @@ impl BuiltinTool {
     ) -> Result<ToolOutput, ToolError> {
         match self {
             Self::Read => tools::read::execute(parse(input)?, ctx),
+            Self::Write => tools::write::execute(parse(input)?, ctx),
         }
     }
 }
