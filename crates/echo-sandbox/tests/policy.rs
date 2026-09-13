@@ -24,3 +24,60 @@ fn default_policy_denies_everything() {
         "default policy must not grant network access"
     );
 }
+
+/// A command cannot start without its interpreter, loader and shared
+/// libraries, so every caller that spawns anything needs these paths. They were
+/// being re-listed per caller; one definition means one place to be wrong.
+#[test]
+fn system_executables_grants_the_paths_a_command_needs_to_start() {
+    let policy = SandboxPolicy::default().allow_system_executables();
+
+    for expected in ["/usr", "/bin", "/lib"] {
+        let path = std::path::Path::new(expected);
+        if !path.exists() {
+            continue;
+        }
+        assert!(
+            policy.readable_paths().contains(&path.to_path_buf()),
+            "{expected} exists but was not granted"
+        );
+    }
+}
+
+/// Being able to run `ls` must not imply being able to overwrite it, or reach
+/// the network. This grant is deliberately one axis wide.
+#[test]
+fn system_executables_grants_read_only() {
+    let policy = SandboxPolicy::default().allow_system_executables();
+
+    assert!(
+        !policy.readable_paths().is_empty(),
+        "granted nothing at all"
+    );
+    assert!(policy.writable_paths().is_empty(), "granted write access");
+    assert!(!policy.allows_network(), "granted network access");
+}
+
+/// Landlock rejects a rule for a path that does not exist, which would turn a
+/// portability difference between distributions into a failure to sandbox.
+#[test]
+fn system_executables_skips_paths_this_system_lacks() {
+    let policy = SandboxPolicy::default().allow_system_executables();
+
+    for path in policy.readable_paths() {
+        assert!(path.exists(), "{} does not exist here", path.display());
+    }
+}
+
+/// It widens an existing policy rather than replacing it.
+#[test]
+fn system_executables_keeps_what_was_already_granted() {
+    let policy = SandboxPolicy::default()
+        .allow_write("/srv/out")
+        .allow_system_executables();
+
+    assert_eq!(
+        policy.writable_paths(),
+        [std::path::PathBuf::from("/srv/out")]
+    );
+}
