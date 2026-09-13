@@ -80,6 +80,43 @@ impl FsGuard {
         }
     }
 
+    /// Open `path` for reading, refusing anything the policy does not allow.
+    ///
+    /// Prefer this to [`check_read`] wherever the caller is going to open the
+    /// file anyway. Returning a path means the caller re-resolves it, and
+    /// between the check and that open the leaf can be swapped for a symlink
+    /// pointing outside the allowed roots — the handle closes that window,
+    /// because there is nothing left to re-resolve.
+    ///
+    /// `O_NOFOLLOW` makes the open itself fail (`ELOOP`) if the final component
+    /// became a symlink after the check. Note it guards the *final* component
+    /// only: an attacker able to swap a parent directory mid-open would need
+    /// full `openat`-chain resolution to defeat, which this does not attempt.
+    ///
+    /// [`check_read`]: FsGuard::check_read
+    pub fn open_read(&self, path: &Path) -> Result<std::fs::File, SandboxError> {
+        let resolved = self.check_read(path)?;
+        open(std::fs::OpenOptions::new().read(true), &resolved, path)
+    }
+
+    /// Open `path` for writing, creating or truncating it.
+    ///
+    /// Same reasoning as [`open_read`]: the handle removes the window between
+    /// the policy check and the open.
+    ///
+    /// [`open_read`]: FsGuard::open_read
+    pub fn open_write(&self, path: &Path) -> Result<std::fs::File, SandboxError> {
+        let resolved = self.check_write(path)?;
+        open(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true),
+            &resolved,
+            path,
+        )
+    }
+
     /// Every regular file beneath `root` that this guard permits reading.
     ///
     /// Exists here rather than in each tool because the confinement rule is the
@@ -221,4 +258,24 @@ fn permit(
             requested: requested.to_path_buf(),
         })
     }
+}
+
+/// Open an already-approved path without following a symlink at the leaf.
+///
+/// `O_NOFOLLOW` is the whole point: the path was canonical when checked, so if
+/// the final component is a symlink *now*, it was swapped in afterwards.
+fn open(
+    options: &mut std::fs::OpenOptions,
+    resolved: &Path,
+    requested: &Path,
+) -> Result<std::fs::File, SandboxError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    options
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(resolved)
+        .map_err(|source| SandboxError::Unresolvable {
+            requested: requested.to_path_buf(),
+            source,
+        })
 }

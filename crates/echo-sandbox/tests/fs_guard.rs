@@ -356,3 +356,81 @@ fn a_missing_file_in_an_allowed_subdirectory_still_says_so() {
 
     assert!(error.contains("No such file"), "got: {error}");
 }
+
+#[test]
+fn open_read_returns_a_usable_handle_inside_an_allowed_root() {
+    use std::io::Read;
+
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("notes.txt"), b"hello").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+    let mut file = guard.open_read(&root.path().join("notes.txt")).unwrap();
+
+    let mut got = String::new();
+    file.read_to_string(&mut got).unwrap();
+    assert_eq!(got, "hello");
+}
+
+#[test]
+fn open_read_refuses_a_path_outside_every_allowed_root() {
+    let allowed = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::fs::write(elsewhere.path().join("secret.txt"), b"secret").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(allowed.path())).unwrap();
+
+    assert!(
+        guard
+            .open_read(&elsewhere.path().join("secret.txt"))
+            .is_err()
+    );
+}
+
+#[test]
+fn open_write_creates_inside_an_allowed_root() {
+    use std::io::Write;
+
+    let root = tempfile::tempdir().unwrap();
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_write(root.path())).unwrap();
+
+    let target = root.path().join("created.txt");
+    let mut file = guard.open_write(&target).unwrap();
+    file.write_all(b"written").unwrap();
+    drop(file);
+
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "written");
+}
+
+/// A read grant must not yield a writable handle.
+#[test]
+fn open_write_refuses_a_read_only_grant() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("notes.txt"), b"original").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+
+    assert!(guard.open_write(&root.path().join("notes.txt")).is_err());
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("notes.txt")).unwrap(),
+        "original"
+    );
+}
+
+/// `open_write` truncates, matching the `write` tool's replace-the-file
+/// semantics — otherwise a shorter write would leave a tail of the old content.
+#[test]
+fn open_write_truncates_existing_content() {
+    use std::io::Write;
+
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("existing.txt");
+    std::fs::write(&target, b"a much longer original body").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_write(root.path())).unwrap();
+    let mut file = guard.open_write(&target).unwrap();
+    file.write_all(b"short").unwrap();
+    drop(file);
+
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "short");
+}

@@ -27,19 +27,19 @@ pub struct EditInput {
 pub fn execute(input: EditInput, ctx: &ExecutionContext) -> Result<ToolOutput, ToolError> {
     // Both grants are required and checked separately, because the policy grants
     // them independently — an edit on a read-only root must fail even though the
-    // read half would succeed. The read check comes first so that failure does
-    // not first disclose the file's contents through an error message.
-    ctx.guard()
-        .check_read(&input.path)
-        .map_err(crate::denied(&input.path))?;
-    let resolved = ctx
+    // read half would succeed. Reading first also means a read-only grant fails
+    // before any content is disclosed through an error message.
+    let mut source = ctx
         .guard()
-        .check_write(&input.path)
+        .open_read(&input.path)
         .map_err(crate::denied(&input.path))?;
 
-    let content = std::fs::read_to_string(&resolved).map_err(|error| ToolError::Failed {
-        subject: format!("read {}", input.path.display()),
-        detail: error.to_string(),
+    let mut content = String::new();
+    std::io::Read::read_to_string(&mut source, &mut content).map_err(|error| {
+        ToolError::Failed {
+            subject: format!("read {}", input.path.display()),
+            detail: error.to_string(),
+        }
     })?;
 
     let occurrences = content.matches(&input.old).count();
@@ -53,13 +53,22 @@ pub fn execute(input: EditInput, ctx: &ExecutionContext) -> Result<ToolOutput, T
         });
     }
 
+    // Opened only once the replacement is known to be unambiguous, so a failed
+    // edit never truncates the file it could not edit.
     let updated = content.replace(&input.old, &input.new);
-    std::fs::write(&resolved, &updated).map_err(|error| ToolError::Failed {
-        subject: format!("write {}", input.path.display()),
-        detail: error.to_string(),
+    let mut target = ctx
+        .guard()
+        .open_write(&input.path)
+        .map_err(crate::denied(&input.path))?;
+
+    std::io::Write::write_all(&mut target, updated.as_bytes()).map_err(|error| {
+        ToolError::Failed {
+            subject: format!("write {}", input.path.display()),
+            detail: error.to_string(),
+        }
     })?;
 
     Ok(ToolOutput {
-        content: format!("edited {}", resolved.display()),
+        content: format!("edited {}", input.path.display()),
     })
 }

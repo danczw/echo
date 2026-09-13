@@ -19,14 +19,16 @@ pub struct ReadInput {
 /// Never spawns a process, so the kernel enforcement never sees it — the
 /// `FsGuard` check below is the only thing keeping it inside the policy.
 pub fn execute(input: ReadInput, ctx: &ExecutionContext) -> Result<ToolOutput, ToolError> {
-    let resolved = ctx
+    // An open handle rather than a path: a path would be re-resolved when
+    // opened, leaving a window for the leaf to be swapped for a symlink after
+    // the policy check.
+    let mut file = ctx
         .guard()
-        .check_read(&input.path)
+        .open_read(&input.path)
         .map_err(crate::denied(&input.path))?;
 
-    // Read the *resolved* path, not the requested one: the guard canonicalized
-    // it, and re-reading the original would reopen the traversal it just closed.
-    let content = std::fs::read_to_string(&resolved).map_err(|error| ToolError::Failed {
+    let mut content = String::new();
+    std::io::Read::read_to_string(&mut file, &mut content).map_err(|error| ToolError::Failed {
         subject: format!("read {}", input.path.display()),
         detail: error.to_string(),
     })?;
