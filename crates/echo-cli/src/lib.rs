@@ -40,7 +40,9 @@ pub enum Command {
     ///
     /// Put the command after `--`:
     ///
-    ///     echo sandbox-run --allow-read /srv -- cat /srv/notes.txt
+    /// ```text
+    /// echo sandbox-run --allow-read /srv -- cat /srv/notes.txt
+    /// ```
     SandboxRun(SandboxRun),
 }
 
