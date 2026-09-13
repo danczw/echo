@@ -44,6 +44,7 @@ fn allow_probe(policy: SandboxPolicy, probe: &str) -> SandboxPolicy {
 fn run(policy: &SandboxPolicy, program: &str, args: &[&str]) -> std::process::Output {
     let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     Command::new(env!("CARGO_BIN_EXE_echo-sandbox-helper"))
+        .arg(echo_sandbox::HELPER_FLAG)
         .args(HelperArgs::encode(policy, program, &owned))
         .output()
         .expect("helper should start")
@@ -139,7 +140,13 @@ fn malformed_arguments_do_not_run_the_command() {
     let marker = tempfile::tempdir().unwrap().path().join("should-not-exist");
 
     let output = Command::new(env!("CARGO_BIN_EXE_echo-sandbox-helper"))
-        .args(["--not-a-flag", "--", "/bin/touch", marker.to_str().unwrap()])
+        .args([
+            echo_sandbox::HELPER_FLAG,
+            "--not-a-flag",
+            "--",
+            "/bin/touch",
+            marker.to_str().unwrap(),
+        ])
         .output()
         .expect("helper should start");
 
