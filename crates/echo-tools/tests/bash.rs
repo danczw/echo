@@ -9,14 +9,6 @@ use echo_sandbox::SandboxPolicy;
 use echo_tools::{BuiltinTool, ExecutionContext, ToolError};
 use serde_json::json;
 
-/// Paths any command needs in order to start at all.
-fn runnable(policy: SandboxPolicy) -> SandboxPolicy {
-    ["/usr", "/bin", "/lib", "/lib64"]
-        .iter()
-        .filter(|p| std::path::Path::new(p).exists())
-        .fold(policy, |acc, p| acc.allow_read(p))
-}
-
 fn context(policy: SandboxPolicy) -> ExecutionContext {
     // The test harness does not dispatch helper mode, so point at a binary that
     // does rather than re-executing this one.
@@ -27,7 +19,7 @@ fn context(policy: SandboxPolicy) -> ExecutionContext {
 
 #[test]
 fn runs_a_command_and_returns_its_output() {
-    let ctx = context(runnable(SandboxPolicy::default()));
+    let ctx = context(SandboxPolicy::default().allow_system_executables());
     let out = BuiltinTool::Bash
         .execute(json!({ "command": "echo hello" }), &ctx)
         .unwrap();
@@ -39,7 +31,7 @@ fn runs_a_command_and_returns_its_output() {
 /// command failed.
 #[test]
 fn surfaces_a_non_zero_exit() {
-    let ctx = context(runnable(SandboxPolicy::default()));
+    let ctx = context(SandboxPolicy::default().allow_system_executables());
     let err = BuiltinTool::Bash
         .execute(json!({ "command": "exit 3" }), &ctx)
         .unwrap_err();
@@ -56,7 +48,7 @@ fn the_command_is_confined_by_the_policy() {
     std::fs::write(&secret, b"SECRET-CONTENTS").unwrap();
 
     // secret_dir is deliberately not granted.
-    let ctx = context(runnable(SandboxPolicy::default()));
+    let ctx = context(SandboxPolicy::default().allow_system_executables());
     let result = BuiltinTool::Bash.execute(
         json!({ "command": format!("cat {}", secret.display()) }),
         &ctx,
@@ -79,7 +71,11 @@ fn granted_paths_are_reachable() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("visible.txt"), b"VISIBLE").unwrap();
 
-    let ctx = context(runnable(SandboxPolicy::default()).allow_read(dir.path()));
+    let ctx = context(
+        SandboxPolicy::default()
+            .allow_system_executables()
+            .allow_read(dir.path()),
+    );
     let out = BuiltinTool::Bash
         .execute(
             json!({ "command": format!("cat {}/visible.txt", dir.path().display()) }),
@@ -93,7 +89,7 @@ fn granted_paths_are_reachable() {
 /// `bash` output is bounded too: the command chooses how much it prints.
 #[test]
 fn output_is_bounded() {
-    let ctx = context(runnable(SandboxPolicy::default()))
+    let ctx = context(SandboxPolicy::default().allow_system_executables())
         .with_limits(echo_tools::OutputLimits::default().with_max_bytes(200));
 
     let out = BuiltinTool::Bash
