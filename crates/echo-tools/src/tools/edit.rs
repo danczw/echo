@@ -25,17 +25,19 @@ pub struct EditInput {
 /// guess: the model believes the edit happened, so getting it wrong quietly is
 /// worse than failing.
 pub fn execute(input: EditInput, ctx: &ExecutionContext) -> Result<ToolOutput, ToolError> {
-    let deny = |error: echo_sandbox::SandboxError| ToolError::Denied {
-        subject: input.path.display().to_string(),
-        reason: error.to_string(),
-    };
+    // Both grants are required and checked separately, because the policy grants
+    // them independently — an edit on a read-only root must fail even though the
+    // read half would succeed. The read check comes first so that failure does
+    // not first disclose the file's contents through an error message.
+    ctx.guard()
+        .check_read(&input.path)
+        .map_err(crate::denied(&input.path))?;
+    let resolved = ctx
+        .guard()
+        .check_write(&input.path)
+        .map_err(crate::denied(&input.path))?;
 
-    let readable = ctx.guard().check_read(&input.path).map_err(deny)?;
-    // Checked before reading, so a read-only grant fails without first
-    // disclosing the file's contents through an error message.
-    let writable = ctx.guard().check_write(&input.path).map_err(deny)?;
-
-    let content = std::fs::read_to_string(&readable).map_err(|error| ToolError::Failed {
+    let content = std::fs::read_to_string(&resolved).map_err(|error| ToolError::Failed {
         subject: format!("read {}", input.path.display()),
         detail: error.to_string(),
     })?;
@@ -52,12 +54,12 @@ pub fn execute(input: EditInput, ctx: &ExecutionContext) -> Result<ToolOutput, T
     }
 
     let updated = content.replace(&input.old, &input.new);
-    std::fs::write(&writable, &updated).map_err(|error| ToolError::Failed {
+    std::fs::write(&resolved, &updated).map_err(|error| ToolError::Failed {
         subject: format!("write {}", input.path.display()),
         detail: error.to_string(),
     })?;
 
     Ok(ToolOutput {
-        content: format!("edited {}", writable.display()),
+        content: format!("edited {}", resolved.display()),
     })
 }

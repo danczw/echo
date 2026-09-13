@@ -22,10 +22,7 @@ pub fn execute(input: ReadInput, ctx: &ExecutionContext) -> Result<ToolOutput, T
     let resolved = ctx
         .guard()
         .check_read(&input.path)
-        .map_err(|error| ToolError::Denied {
-            subject: input.path.display().to_string(),
-            reason: error.to_string(),
-        })?;
+        .map_err(crate::denied(&input.path))?;
 
     // Read the *resolved* path, not the requested one: the guard canonicalized
     // it, and re-reading the original would reopen the traversal it just closed.

@@ -22,10 +22,7 @@ pub fn execute(input: WriteInput, ctx: &ExecutionContext) -> Result<ToolOutput, 
     let resolved = ctx
         .guard()
         .check_write(&input.path)
-        .map_err(|error| ToolError::Denied {
-            subject: input.path.display().to_string(),
-            reason: error.to_string(),
-        })?;
+        .map_err(crate::denied(&input.path))?;
 
     std::fs::write(&resolved, &input.content).map_err(|error| ToolError::Failed {
         subject: format!("write {}", input.path.display()),
