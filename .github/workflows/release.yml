@@ -1,0 +1,78 @@
+name: Release
+
+# Tag-driven: pushing `v0.1.0-alpha.1` publishes that release. Nothing publishes
+# on a branch push, so a merge can never ship a binary by itself.
+on:
+  push:
+    tags: ["v*"]
+
+# Read-only by default; the one job that must create a release widens it for
+# itself alone.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 0
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # A tag claiming to be v0.1.0 that builds 0.2.0 would put the wrong
+      # binary behind the right name, and nothing downstream would notice.
+      - name: Check the tag matches the crate version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(cargo metadata --format-version 1 --no-deps \
+            | jq -r '.packages[] | select(.name == "echo-cli") | .version')"
+          echo "tag=$tag crate=$crate"
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::tag $tag does not match crate version $crate"
+            exit 1
+          fi
+
+      # The binary's whole claim is that it sandboxes. Shipping one whose
+      # enforcement tests were never run is the specific failure this project
+      # cannot afford, so they gate the release rather than only the merge.
+      - name: Test, including real sandbox enforcement
+        run: cargo test --workspace --features sandbox-integration
+
+      - name: Build
+        run: cargo build --release --locked -p echo-cli
+
+      - name: Package
+        id: package
+        run: |
+          name="echo-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          mkdir -p "dist/$name"
+          cp target/release/echo README.md LICENSE "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          # Lets anyone verify the download matches what this run produced.
+          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          echo "archive=dist/$name.tar.gz" >> "$GITHUB_OUTPUT"
+
+      # Pre-1.0 and alpha-suffixed versions are marked as pre-releases, so the
+      # "latest" link never points at a build whose sandbox is still moving.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            $prerelease \
+            "${{ steps.package.outputs.archive }}" \
+            "${{ steps.package.outputs.archive }}.sha256"
