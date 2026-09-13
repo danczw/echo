@@ -35,8 +35,49 @@ impl FsGuard {
     ///
     /// The path must already exist — you cannot read what is not there.
     pub fn check_read(&self, path: &Path) -> Result<PathBuf, SandboxError> {
-        let resolved = canonicalize(path)?;
-        permit(resolved, &self.readable, path, "read")
+        match canonicalize(path) {
+            Ok(resolved) => permit(resolved, &self.readable, path, "read"),
+            // Why a path failed to resolve is information: ENOENT, EACCES and
+            // "resolves but out of bounds" are distinguishable, and a caller
+            // that can probe arbitrary paths reads them back as a map of the
+            // host. Only disclose the reason where the policy already grants
+            // the area being asked about.
+            Err(unresolved) => {
+                Err(self.conceal_unless_granted(path, unresolved, &self.readable, "read"))
+            }
+        }
+    }
+
+    /// Report why a path could not be resolved, but only inside a granted area.
+    ///
+    /// Resolution failed, so the path itself cannot be located — instead the
+    /// nearest ancestor that *does* resolve decides. If that ancestor sits in an
+    /// allowed root, the caller was already entitled to know what is in there,
+    /// and a plain "no such file" is honest feedback it needs to avoid retrying.
+    /// Anywhere else, the refusal is indistinguishable from any other.
+    fn conceal_unless_granted(
+        &self,
+        requested: &Path,
+        unresolved: SandboxError,
+        roots: &[PathBuf],
+        operation: &str,
+    ) -> SandboxError {
+        let grants_area = requested
+            .ancestors()
+            .skip(1)
+            .find_map(|ancestor| ancestor.canonicalize().ok())
+            .is_some_and(|existing| roots.iter().any(|root| existing.starts_with(root)));
+
+        let subject = requested.display().to_string();
+        if grants_area {
+            crate::AuditEvent::denied(operation, &subject, "path does not resolve").emit();
+            return unresolved;
+        }
+
+        crate::AuditEvent::denied(operation, &subject, "outside every allowed root").emit();
+        SandboxError::PathNotAllowed {
+            requested: requested.to_path_buf(),
+        }
     }
 
     /// Every regular file beneath `root` that this guard permits reading.

@@ -266,3 +266,93 @@ fn walk_refuses_a_root_outside_the_policy() {
     let guard = FsGuard::new(&SandboxPolicy::default().allow_read(allowed.path())).unwrap();
     assert!(guard.walk_readable(elsewhere.path()).is_err());
 }
+
+/// Refusals must not reveal whether a path outside the policy exists.
+///
+/// `canonicalize` fails differently for a missing file (ENOENT), an
+/// unreadable parent (EACCES) and a path that resolves but is out of bounds.
+/// Passing those differences to a caller turns the guard into a filesystem
+/// oracle: a prompt-injected model can map the host by probing paths and
+/// reading the reason back.
+#[test]
+fn refusals_outside_the_policy_are_indistinguishable() {
+    let allowed = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let exists = elsewhere.path().join("exists.txt");
+    std::fs::write(&exists, b"x").unwrap();
+    let missing = elsewhere.path().join("missing.txt");
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(allowed.path())).unwrap();
+
+    let for_existing = guard.check_read(&exists).unwrap_err().to_string();
+    let for_missing = guard.check_read(&missing).unwrap_err().to_string();
+
+    assert!(
+        !for_missing.contains("No such file"),
+        "refusal leaked that the path does not exist: {for_missing}"
+    );
+    assert_eq!(
+        for_existing.replace("exists.txt", "X"),
+        for_missing.replace("missing.txt", "X"),
+        "existing and missing paths outside the policy gave different refusals"
+    );
+}
+
+/// The same for writes, which already behaved this way — pinned so it stays.
+#[test]
+fn write_refusals_outside_the_policy_are_indistinguishable() {
+    let allowed = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let exists = elsewhere.path().join("exists.txt");
+    std::fs::write(&exists, b"x").unwrap();
+
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_write(allowed.path())).unwrap();
+
+    let for_existing = guard.check_write(&exists).unwrap_err().to_string();
+    let for_missing = guard
+        .check_write(&elsewhere.path().join("missing.txt"))
+        .unwrap_err()
+        .to_string();
+
+    assert!(!for_missing.contains("No such file"), "{for_missing}");
+    assert_eq!(
+        for_existing.replace("exists.txt", "X"),
+        for_missing.replace("missing.txt", "X")
+    );
+}
+
+/// Inside an allowed root, "no such file" is honest feedback and must survive.
+///
+/// The policy already grants this directory, so saying a file in it is absent
+/// discloses nothing the caller was not entitled to learn — and a model told
+/// only "refused" would retry a path it is allowed to use.
+#[test]
+fn a_missing_file_inside_an_allowed_root_still_says_so() {
+    let root = tempfile::tempdir().unwrap();
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+
+    let error = guard
+        .check_read(&root.path().join("absent.txt"))
+        .unwrap_err()
+        .to_string();
+
+    assert!(
+        error.contains("No such file") || error.contains("not found"),
+        "an in-root miss should report why: {error}"
+    );
+}
+
+/// The distinction survives one level down, where the parent is in-root.
+#[test]
+fn a_missing_file_in_an_allowed_subdirectory_still_says_so() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("sub")).unwrap();
+    let guard = FsGuard::new(&SandboxPolicy::default().allow_read(root.path())).unwrap();
+
+    let error = guard
+        .check_read(&root.path().join("sub/absent.txt"))
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("No such file"), "got: {error}");
+}
