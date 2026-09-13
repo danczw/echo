@@ -42,7 +42,9 @@ nothing readable, not even `/bin/true` reaches `main`.
 
 Prebuilt Linux binaries are attached to each
 [release](https://github.com/danczw/echo/releases); each archive ships with a
-`.sha256` beside it. Or build from source:
+`.sha256` beside it. They are statically linked (musl), so there is no minimum
+glibc and no runtime dependency beyond a Linux 6.10+ kernel. Or build from
+source:
 
 ```sh
 cargo install --git https://github.com/danczw/echo echo-cli
